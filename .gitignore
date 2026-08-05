@@ -1,0 +1,29 @@
+# Python
+venv/
+__pycache__/
+*.pyc
+
+# Environment
+.env
+*.session
+
+# Logs
+logs/
+*.log
+
+# SQLite runtime files
+*.db-wal
+*.db-shm
+
+# Live database
+trading.db
+database/trading.db
+
+# ML outputs
+training_dataset.csv
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
