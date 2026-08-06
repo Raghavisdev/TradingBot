@@ -21,6 +21,7 @@ All timers are daemon — they die cleanly when the bot stops.
 MODE: PASSIVE COLLECTION ONLY. Does NOT affect BUY decisions.
 """
 
+import os
 import time
 import logging
 import threading
@@ -36,6 +37,13 @@ from intelligence.community      import collect_community
 from intelligence.momentum       import collect_momentum
 
 logger = logging.getLogger("Intelligence")
+
+# ======================================================
+# TWITTER / X API STATUS
+# Checked once at module load. Token is NEVER logged.
+# ======================================================
+
+_TWITTER_ENABLED = bool(os.getenv("TWITTER_BEARER_TOKEN", ""))
 
 # ======================================================
 # COLLECTION SCHEDULE (minutes → seconds delay)
@@ -331,3 +339,9 @@ def _compute_composite_viral_score(record: dict) -> float:
 # ======================================================
 
 intelligence_runner = IntelligenceRunner()
+
+# Log X API availability on startup — token value is NEVER printed
+if _TWITTER_ENABLED:
+    logger.info("[INTEL] X API enabled")
+else:
+    logger.info("[INTEL] X API unavailable — using free-tier fallbacks (DuckDuckGo, RSS)")

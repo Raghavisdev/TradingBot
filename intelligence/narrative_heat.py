@@ -27,26 +27,38 @@ from intelligence.narrative import NARRATIVE_KEYWORDS
 # ======================================================
 
 def _fetch_recent_headlines() -> list:
-    """Fetches headlines from CryptoPanic RSS for narrative heat calculation."""
+    """Fetches headlines from valid RSS feeds (CoinTelegraph, CoinDesk, CryptoSlate) for narrative heat calculation."""
     headlines = []
     now = time.time()
+    valid_feeds = [
+        "https://cointelegraph.com/rss",
+        "https://www.coindesk.com/arc/outboundfeeds/rss/",
+        "https://cryptoslate.com/feed/",
+    ]
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
+    }
 
-    try:
-        response = requests.get(
-            "https://cryptopanic.com/news/rss/",
-            timeout=8
-        )
-        if response.status_code == 200:
-            root = ET.fromstring(response.text)
+    for feed_url in valid_feeds:
+        try:
+            res = requests.get(feed_url, headers=headers, timeout=6)
+            if res.status_code != 200:
+                continue
+
+            # Validate XML structure (detect HTML redirects / Cloudflare pages)
+            snippet = (res.text or "").strip()[:200].lower()
+            if "<!doctype html" in snippet or "<html" in snippet:
+                continue
+
+            root = ET.fromstring(res.text)
             for item in root.iter("item"):
                 title_el = item.find("title")
-                pub_el = item.find("pubDate")
-
-                if title_el is None:
+                pub_el   = item.find("pubDate")
+                if title_el is None or not title_el.text:
                     continue
 
-                headline = (title_el.text or "").lower()
-                pub_text = pub_el.text if pub_el is not None else ""
+                headline = title_el.text.strip().lower()
+                pub_text = pub_el.text.strip() if (pub_el is not None and pub_el.text) else ""
 
                 minutes_old = 9999.0
                 try:
@@ -57,11 +69,11 @@ def _fetch_recent_headlines() -> list:
                     pass
 
                 headlines.append({
-                    "text": headline,
+                    "text":        headline,
                     "minutes_old": minutes_old,
                 })
-    except Exception:
-        pass
+        except Exception:
+            continue
 
     return headlines
 

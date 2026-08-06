@@ -126,8 +126,11 @@ def collect_social(coin) -> dict:
         twitter_count = tw["count"]
         twitter_engagement = tw["engagement"]
 
-        # Free-tier fallback
-        ddg_count = _fetch_duckduckgo_mentions(symbol, name)
+        # Free-tier fallback — only used when X API is not available
+        if TWITTER_ENABLED:
+            ddg_count = 0
+        else:
+            ddg_count = _fetch_duckduckgo_mentions(symbol, name)
 
         total_mentions = twitter_count + ddg_count
         elapsed_seconds = max(time.time() - start_time, 0.1)
