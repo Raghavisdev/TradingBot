@@ -17,6 +17,8 @@ from trading.tracker_manager import tracker_manager
 
 from database.database import database
 
+from intelligence.runner import intelligence_runner
+
 
 # ==========================================================
 # GLOBAL OBJECTS
@@ -85,6 +87,14 @@ def process_message(message):
     # ======================================================
 
     tracker_manager.start_tracking(coin)
+
+    # ======================================================
+    # PASSIVE INTELLIGENCE COLLECTION (AI V2)
+    # Runs in a background daemon thread — does NOT affect
+    # the existing BUY/WATCH/SKIP decision in any way.
+    # ======================================================
+
+    intelligence_runner.collect(coin)
 
     print("✅ Signal Parsed")
     print("💾 Signal Saved")

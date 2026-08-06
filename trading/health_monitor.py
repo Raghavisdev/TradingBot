@@ -3,6 +3,8 @@ import threading
 import logging
 import os
 
+import sys
+
 try:
     import psutil
     HAS_PSUTIL = True
@@ -16,13 +18,49 @@ logger = logging.getLogger("HealthMonitor")
 
 
 def get_memory_usage_mb():
-    if not HAS_PSUTIL:
-        return 0.0
+    if HAS_PSUTIL:
+        try:
+            process = psutil.Process(os.getpid())
+            return process.memory_info().rss / (1024 * 1024)
+        except Exception:
+            pass
+
+    # Windows OS native API fallback (ctypes)
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class PROCESS_MEMORY_COUNTERS(ctypes.Structure):
+                _fields_ = [
+                    ("cb", wintypes.DWORD),
+                    ("PageFaultCount", wintypes.DWORD),
+                    ("PeakWorkingSetSize", ctypes.c_size_t),
+                    ("WorkingSetSize", ctypes.c_size_t),
+                    ("QuotaPeakPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaPeakNonPagedPoolUsage", ctypes.c_size_t),
+                    ("QuotaNonPagedPoolUsage", ctypes.c_size_t),
+                    ("PagefileUsage", ctypes.c_size_t),
+                    ("PeakPagefileUsage", ctypes.c_size_t),
+                ]
+
+            counters = PROCESS_MEMORY_COUNTERS()
+            counters.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS)
+            handle = ctypes.windll.kernel32.GetCurrentProcess()
+            if ctypes.windll.psapi.GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb):
+                return counters.WorkingSetSize / (1024 * 1024)
+        except Exception:
+            pass
+
+    # POSIX fallback
     try:
-        process = psutil.Process(os.getpid())
-        return process.memory_info().rss / (1024 * 1024)
+        import resource
+        return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024.0
     except Exception:
-        return 0.0
+        pass
+
+    return 0.0
 
 
 class HealthMonitor:

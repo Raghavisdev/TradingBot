@@ -111,6 +111,14 @@ class TradeManager:
 
                 self.trader.partial_sell(position, 70)
 
+            elif action == "SELL_40":
+
+                self.trader.partial_sell(position, 40)
+
+            elif action == "SELL_20":
+
+                self.trader.partial_sell(position, 20)
+
             elif action == "SELL_15":
 
                 self.trader.partial_sell(position, 15)

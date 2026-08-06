@@ -12,6 +12,9 @@ GEMTOOLS_CHAT_ID = -1001998961899
 
 def register_handlers(client):
 
+    if getattr(client, "_handlers_registered", False):
+        return
+
     @client.on(events.NewMessage)
     async def new_message_handler(event):
 
@@ -34,3 +37,5 @@ def register_handlers(client):
         except Exception as e:
 
             print("❌ Pipeline Error:", e)
+
+    client._handlers_registered = True

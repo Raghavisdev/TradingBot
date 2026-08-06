@@ -254,6 +254,75 @@ class Coin:
 
         self.position = None
 
+        # ==================================================
+        # INTELLIGENCE (AI V2 — Passive Collection Slots)
+        # These fields are populated by intelligence/runner.py
+        # and stored in the intelligence table.
+        # They do NOT affect any BUY/WATCH/SKIP decisions.
+        # ==================================================
+
+        # Social v2
+        self.social_mentions     = 0
+        self.social_velocity     = 0.0
+        self.mentions_per_minute = 0.0
+        self.growth_rate         = 0.0
+        self.viral_acceleration  = 0.0
+        self.engagement_velocity = 0.0
+        self.engagement_score    = 0.0
+        self.viral_score         = 0.0
+
+        # News v2
+        self.news_score       = 0.0
+        self.news_headline    = ""
+        self.news_sentiment   = "neutral"
+        self.news_minutes_old = 0.0
+        self.news_credibility = 0.0
+        self.news_source      = ""
+        self.freshness_score  = 0.0
+
+        # Sentiment v2
+        self.sentiment_positive   = 0.0
+        self.sentiment_neutral    = 1.0
+        self.sentiment_negative   = 0.0
+        self.sentiment_confidence = 0.0
+        self.sentiment_strength   = 0.0
+
+        # Sarcasm
+        self.sarcasm_probability = 0.0
+
+        # Narrative
+        self.primary_narrative    = "Unknown"
+        self.secondary_narrative  = ""
+        self.narrative_confidence = 0.0
+        self.narrative_heat_score = 0.0
+
+        # KOL
+        self.kol_mentions = 0
+        self.kol_score    = 0.0
+
+        # Community v2
+        self.telegram_members      = 0
+        self.twitter_followers     = 0
+        self.community_growth_rate = 0.0
+        self.message_rate          = 0.0
+        self.active_users          = 0
+
+        # Momentum velocity
+        self.mc_velocity      = 0.0
+        self.holder_velocity  = 0.0
+        self.volume_velocity  = 0.0
+        self.buy_velocity     = 0.0
+        self.liquidity_change = 0.0
+
+        # Momentum acceleration v2
+        self.mc_acceleration     = 0.0
+        self.holder_acceleration = 0.0
+        self.volume_acceleration = 0.0
+        self.buy_sell_ratio      = 0.0
+
+        # Internal runner flag
+        self._intelligence_primary_narrative = "Unknown"
+
     def __str__(self):
 
         return f"""

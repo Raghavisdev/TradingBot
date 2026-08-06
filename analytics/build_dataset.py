@@ -51,14 +51,18 @@ class DatasetBuilder:
         signals_list = self.fetch_all_as_dicts("signals")
         outcomes_list = self.fetch_all_as_dicts("outcomes")
         snapshots_list = self.fetch_all_as_dicts("snapshots")
+        intelligence_list = self.fetch_all_as_dicts("intelligence")
 
         signals_loaded = len(signals_list)
         outcomes_loaded = len(outcomes_list)
         snapshots_loaded = len(snapshots_list)
+        intelligence_loaded = len(intelligence_list)
 
-        print(f"Loaded Signals    : {signals_loaded}")
-        print(f"Loaded Outcomes   : {outcomes_loaded}")
-        print(f"Loaded Snapshots  : {snapshots_loaded}")
+        print(f"Loaded Signals       : {signals_loaded}")
+        print(f"Loaded Outcomes      : {outcomes_loaded}")
+        print(f"Loaded Snapshots     : {snapshots_loaded}")
+        print(f"Loaded Intelligence  : {intelligence_loaded}")
+
 
         all_cols = [
             "signal_id", "timestamp", "symbol", "contract", "source", "bot_version",
@@ -90,6 +94,18 @@ class DatasetBuilder:
             if sid:
                 outcomes_by_id[sid] = out
 
+        # Index intelligence records by signal_id — GROUP all records for time-series
+        intelligence_by_id = {}
+        for intel in intelligence_list:
+            sid = intel.get("signal_id")
+            if sid:
+                if sid not in intelligence_by_id:
+                    intelligence_by_id[sid] = []
+                intelligence_by_id[sid].append(intel)
+
+        # Count signals with intelligence coverage
+        signals_with_intel = sum(1 for sid in intelligence_by_id if intelligence_by_id[sid])
+
         # Merge signals + initial snapshot + outcome (one row per signal_id)
         formatted_rows = []
         seen_signal_ids = set()
@@ -104,43 +120,61 @@ class DatasetBuilder:
                 continue
 
             seen_signal_ids.add(sid)
-            snap = initial_snapshots.get(sid, {})
-            out = outcomes_by_id.get(sid, {})
+            snap     = initial_snapshots.get(sid, {})
+            out      = outcomes_by_id.get(sid, {})
+            intel_ts = intelligence_by_id.get(sid, [])  # List of time-series records
 
             # Combine signal data with initial snapshot data
             combined_context = {**snap, **sig}
 
-            # Generate features & labels
+            # Generate features & labels & aggregated intelligence
             features = feature_builder.build_features(combined_context)
+
+            # Use time-series aggregation when available (multiple records),
+            # fall back to single-record for backward compatibility
+            if len(intel_ts) >= 2:
+                intelligence_features = feature_builder.aggregate_intelligence_timeseries(intel_ts)
+            elif len(intel_ts) == 1:
+                intelligence_features = feature_builder.build_intelligence_features(intel_ts[0])
+            else:
+                intelligence_features = feature_builder.build_intelligence_features({})
+
             labels = label_builder.build_labels(out)
 
             meta = {
-                "signal_id": sid,
-                "timestamp": sig.get("timestamp", ""),
-                "symbol": sig.get("symbol", ""),
-                "contract": sig.get("contract", ""),
-                "source": sig.get("source", "GemTools"),
-                "bot_version": sig.get("bot_version", "1.0")
+                "signal_id":   sid,
+                "timestamp":   sig.get("timestamp", ""),
+                "symbol":      sig.get("symbol", ""),
+                "contract":    sig.get("contract", ""),
+                "source":      sig.get("source", "GemTools"),
+                "bot_version": sig.get("bot_version", "1.0"),
+                "intel_snapshots": len(intel_ts),
             }
 
-            combined_row = {**meta, **features, **labels}
+            combined_row = {**meta, **features, **intelligence_features, **labels}
             formatted_rows.append(combined_row)
 
         # Verification metrics
-        duplicate_ids = len(formatted_rows) - len(seen_signal_ids)
-        label_cols = ["returned_2x", "returned_5x", "returned_10x", "rugged", "max_return", "min_return", "time_to_peak", "tracking_duration", "tracking_end_reason"]
+        duplicate_ids  = len(formatted_rows) - len(seen_signal_ids)
+        label_cols     = ["returned_2x", "returned_5x", "returned_10x", "rugged",
+                          "max_return", "min_return", "time_to_peak",
+                          "tracking_duration", "tracking_end_reason"]
         missing_labels = sum(1 for r in formatted_rows if any(r.get(c) is None for c in label_cols))
+        with_ts_intel  = sum(1 for r in formatted_rows if r.get("intel_snapshots", 0) >= 2)
 
         print("--------------------------------------------------")
-        print(f"Exported Rows        : {len(formatted_rows)}")
-        print(f"Duplicate Signal IDs : {duplicate_ids}")
-        print(f"Missing Labels       : {missing_labels}")
-        print(f"Total Columns        : {len(formatted_rows[0].keys()) if formatted_rows else len(all_cols)}")
+        print(f"Exported Rows         : {len(formatted_rows)}")
+        print(f"Signals w/ Intelligence: {signals_with_intel}")
+        print(f"Signals w/ TS Intel   : {with_ts_intel} (≥2 snapshots)")
+        print(f"Duplicate Signal IDs  : {duplicate_ids}")
+        print(f"Missing Labels        : {missing_labels}")
+        print(f"Total Columns         : {len(formatted_rows[0].keys()) if formatted_rows else 'N/A'}")
         print("==================================================\n")
 
         if HAS_PANDAS:
-            return pd.DataFrame(formatted_rows, columns=all_cols) if formatted_rows else pd.DataFrame(columns=all_cols)
+            return pd.DataFrame(formatted_rows) if formatted_rows else pd.DataFrame()
         return formatted_rows
+
 
     # ======================================================
     # SAVE CSV

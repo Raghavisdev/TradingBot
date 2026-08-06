@@ -176,9 +176,11 @@ class TrackerManager:
 
     def stop_tracking(self, signal_id):
 
-        if signal_id in self.trackers:
+        with self.lock:
 
-            del self.trackers[signal_id]
+            if signal_id in self.trackers:
+
+                del self.trackers[signal_id]
 
     # =====================================================
     # UPDATE ALL TRACKERS
