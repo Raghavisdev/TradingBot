@@ -25,11 +25,13 @@ class LabelBuilder:
 
         labels = {}
 
+        max_ret = float(get_val("max_return", 0.0))
         labels["returned_2x"] = int(bool(get_val("returned_2x", 0)))
         labels["returned_5x"] = int(bool(get_val("returned_5x", 0)))
         labels["returned_10x"] = int(bool(get_val("returned_10x", 0)))
         labels["rugged"] = int(bool(get_val("rugged", 0)))
-        labels["max_return"] = float(get_val("max_return", 0.0))
+        labels["max_return"] = max_ret
+        labels["max_multiple"] = round(1.0 + (max_ret / 100.0), 4)
         labels["min_return"] = float(get_val("min_return", 0.0))
         labels["time_to_peak"] = float(get_val("time_to_peak", 0.0))
         labels["tracking_duration"] = float(get_val("tracking_duration", 0.0))
