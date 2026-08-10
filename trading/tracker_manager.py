@@ -205,6 +205,13 @@ class TrackerManager:
                         snapshot = tracker.build_snapshot()
                         database.save_snapshot(snapshot)
 
+                        # Paper Lab forward snapshot feed (Phase 3 Observer)
+                        try:
+                            from analytics.paper_lab.lab_engine import get_paper_lab_engine
+                            get_paper_lab_engine().on_snapshot(snapshot)
+                        except Exception as lab_e:
+                            print(f"[PAPER LAB ERROR] Snapshot dispatch failed: {lab_e}")
+
                     if tracker.finished:
 
                         database.save_outcome(tracker.coin)

@@ -35,6 +35,15 @@ trade_manager = TradeManager(
 
 
 # ==========================================================
+# RECOVER OPEN PAPER POSITIONS FROM DATABASE
+# Must run before the trade manager thread starts so that
+# any positions open when the bot last stopped are rehydrated
+# into the portfolio and immediately managed by Exit AI.
+# ==========================================================
+
+trade_manager.recover_open_positions(strategy_id="default")
+
+# ==========================================================
 # START TRADE MANAGER
 # ==========================================================
 
@@ -121,6 +130,16 @@ def process_message(message):
     # ======================================================
 
     database.update_signal(coin)
+
+    # ======================================================
+    # PAPER LAB MULTI-STRATEGY EVALUATION (Phase 3 Observer)
+    # Failsafe non-blocking wrapper for S1-S5
+    # ======================================================
+    try:
+        from analytics.paper_lab.lab_engine import get_paper_lab_engine
+        get_paper_lab_engine().on_new_signal(coin)
+    except Exception as lab_e:
+        print(f"[PAPER LAB ERROR] Signal dispatch failed: {lab_e}")
 
     # ======================================================
     # PRINT REPORT
