@@ -3,9 +3,7 @@ from database.signal_logger import SignalLogger
 from database.snapshot_logger import SnapshotLogger
 from database.outcome_logger import OutcomeLogger
 from database.intelligence_logger import IntelligenceLogger
-
-# Uncomment when implemented
-# from database.trade_logger import TradeLogger
+from database.trade_logger import TradeLogger
 
 
 class DatabaseManager:
@@ -22,8 +20,7 @@ class DatabaseManager:
         self.snapshot_logger = SnapshotLogger()
         self.outcome_logger = OutcomeLogger()
         self.intelligence_logger = IntelligenceLogger()
-
-        # self.trade_logger = TradeLogger()
+        self.trade_logger = TradeLogger()
 
         print("[OK] Database Manager Ready\n")
 
@@ -56,11 +53,35 @@ class DatabaseManager:
             self.outcome_logger.save(coin)
 
     # ==================================================
-    # TRADES
+    # PAPER TRADES
     # ==================================================
 
-    # def save_trade(self, position):
-    #     self.trade_logger.save(position)
+    def open_paper_trade(self, position) -> bool:
+        """Persist a new paper buy. Returns True on success."""
+        with self.db_lock:
+            return self.trade_logger.open_trade(position)
+
+    def record_partial_sell(self, position, percent: float, proceeds: float,
+                            partial_pnl: float, exit_reason: str) -> bool:
+        """Persist a partial sell event. Returns True on success."""
+        with self.db_lock:
+            return self.trade_logger.record_partial_sell(
+                position, percent, proceeds, partial_pnl, exit_reason
+            )
+
+    def close_paper_trade(self, position, exit_reason: str) -> bool:
+        """Mark a paper trade as CLOSED. Returns True on success."""
+        with self.db_lock:
+            return self.trade_logger.close_trade(position, exit_reason)
+
+    def get_open_paper_trades(self, strategy_id: str = "default") -> list:
+        """Return all OPEN paper_trades rows for a strategy (used on startup recovery)."""
+        return self.trade_logger.get_open_trades(strategy_id)
+
+    def update_mfe_mae(self, trade_id: str, mfe: float, mae: float) -> None:
+        """Update MFE/MAE for a live open position. Non-blocking, errors suppressed."""
+        with self.db_lock:
+            self.trade_logger.update_mfe_mae(trade_id, mfe, mae)
 
     # ==================================================
     # READ HELPERS
@@ -80,10 +101,6 @@ class DatabaseManager:
 
     def get_outcomes(self):
         return self.outcome_logger.get_all()
-
-    # ==================================================
-    # CLOSE
-    # ==================================================
 
     # ==================================================
     # INTELLIGENCE
@@ -113,8 +130,7 @@ class DatabaseManager:
         self.snapshot_logger.close()
         self.outcome_logger.close()
         self.intelligence_logger.close()
+        self.trade_logger.close()
 
-        # self.trade_logger.close()
 
-
-database = DatabaseManager()
+

@@ -192,6 +192,109 @@ def create_tables():
         """)
 
         # ======================================================
+        # PAPER TRADES
+        # One row per paper trade open event.
+        # Updated in-place as the trade progresses (status, P&L, MFE, MAE).
+        # strategy_id / strategy_version enable multi-strategy portfolios later.
+        # ======================================================
+
+        cursor.execute("""
+
+        CREATE TABLE IF NOT EXISTS paper_trades(
+
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            trade_id            TEXT UNIQUE,
+
+            strategy_id         TEXT DEFAULT 'default',
+
+            strategy_version    TEXT DEFAULT '1.0',
+
+            signal_id           TEXT,
+
+            symbol              TEXT,
+
+            contract            TEXT,
+
+            status              TEXT DEFAULT 'OPEN',
+
+            entry_time          REAL,
+
+            entry_price         REAL,
+
+            entry_market_cap    REAL,
+
+            invested            REAL,
+
+            tokens              REAL,
+
+            remaining_pct       REAL DEFAULT 100.0,
+
+            exit_time           REAL,
+
+            exit_price          REAL,
+
+            exit_market_cap     REAL,
+
+            exit_reason         TEXT,
+
+            realized_pnl        REAL DEFAULT 0.0,
+
+            realized_pct        REAL DEFAULT 0.0,
+
+            mfe                 REAL DEFAULT 0.0,
+
+            mae                 REAL DEFAULT 0.0,
+
+            fees                REAL DEFAULT 0.0,
+
+            slippage            REAL DEFAULT 0.0,
+
+            updated_at          REAL
+
+        )
+
+        """)
+
+        # ======================================================
+        # PAPER PARTIAL SELLS
+        # Append-only — one row per partial exit event.
+        # trade_id links back to paper_trades.
+        # ======================================================
+
+        cursor.execute("""
+
+        CREATE TABLE IF NOT EXISTS paper_partial_sells(
+
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+
+            trade_id        TEXT,
+
+            signal_id       TEXT,
+
+            strategy_id     TEXT DEFAULT 'default',
+
+            sell_time       REAL,
+
+            sell_price      REAL,
+
+            sell_market_cap REAL,
+
+            percent_sold    REAL,
+
+            proceeds        REAL,
+
+            partial_pnl     REAL,
+
+            partial_pct     REAL,
+
+            exit_reason     TEXT
+
+        )
+
+        """)
+
+        # ======================================================
         # INTELLIGENCE (AI V2 — Passive Collection Layer)
         # ======================================================
 
@@ -295,6 +398,76 @@ def create_tables():
                 cursor.execute(stmt)
             except Exception:
                 pass  # Column already exists
+
+        # ======================================================
+        # PAPER LAB TRADES (Phase 3 Multi-Strategy Lab)
+        # ======================================================
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS paper_lab_trades(
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            trade_id            TEXT UNIQUE,
+            strategy_id         TEXT DEFAULT 'S1',
+            strategy_version    TEXT DEFAULT '1.0',
+            signal_id           TEXT,
+            symbol              TEXT,
+            contract            TEXT,
+            status              TEXT DEFAULT 'OPEN',
+            entry_time          REAL,
+            entry_price         REAL,
+            entry_market_cap    REAL,
+            invested            REAL,
+            tokens              REAL,
+            remaining_pct       REAL DEFAULT 100.0,
+            exit_time           REAL,
+            exit_price          REAL,
+            exit_market_cap     REAL,
+            exit_reason         TEXT,
+            realized_pnl        REAL DEFAULT 0.0,
+            realized_pct        REAL DEFAULT 0.0,
+            mfe                 REAL DEFAULT 0.0,
+            mae                 REAL DEFAULT 0.0,
+            fees                REAL DEFAULT 0.0,
+            slippage            REAL DEFAULT 0.0,
+            updated_at          REAL
+        )
+        """)
+
+        # ======================================================
+        # PAPER LAB PARTIAL SELLS
+        # ======================================================
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS paper_lab_partial_sells(
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            trade_id        TEXT,
+            signal_id       TEXT,
+            strategy_id     TEXT DEFAULT 'S1',
+            sell_time       REAL,
+            sell_price      REAL,
+            sell_market_cap REAL,
+            percent_sold    REAL,
+            proceeds        REAL,
+            partial_pnl     REAL,
+            partial_pct     REAL,
+            exit_reason     TEXT
+        )
+        """)
+
+        # ======================================================
+        # PAPER LAB EQUITY
+        # ======================================================
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS paper_lab_equity(
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            strategy_id     TEXT,
+            timestamp       REAL,
+            cash            REAL,
+            position_value  REAL,
+            equity          REAL
+        )
+        """)
 
         connection.commit()
         print("[OK] Database Tables Ready")

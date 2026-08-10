@@ -66,6 +66,23 @@ class Position:
         self.tokens = 0.0
 
         # ==========================================
+        # PAPER TRADE PERSISTENCE
+        # trade_id  — stable uuid for all DB operations on this position
+        # signal_id — FK to signals table (set from coin.signal_id on buy)
+        # strategy_id / strategy_version — for multi-strategy support later
+        # mfe / mae — max favorable / adverse excursion %
+        # ==========================================
+
+        import uuid
+        self.trade_id         = str(uuid.uuid4())
+        self.signal_id        = None
+        self.strategy_id      = "default"
+        self.strategy_version = "1.0"
+        self.mfe              = 0.0   # max favorable excursion (highest pnl_percent seen)
+        self.mae              = 0.0   # max adverse excursion  (lowest  pnl_percent seen)
+        self.entry_time       = None  # UNIX timestamp; set to time.time() on buy
+
+        # ==========================================
         # LIVE MARKET
         # ==========================================
 
@@ -187,9 +204,16 @@ class Position:
         )
 
         # Highest Profit Ever
-
         if self.pnl_percent > self.highest_profit:
             self.highest_profit = self.pnl_percent
+
+        # Max Favorable Excursion (MFE) — highest pnl_percent ever seen
+        if self.pnl_percent > self.mfe:
+            self.mfe = self.pnl_percent
+
+        # Max Adverse Excursion (MAE) — lowest (most negative) pnl_percent ever seen
+        if self.pnl_percent < self.mae:
+            self.mae = self.pnl_percent
 
     # ===================================================
     # Print Position
