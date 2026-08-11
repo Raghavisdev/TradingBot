@@ -429,9 +429,24 @@ def create_tables():
             mae                 REAL DEFAULT 0.0,
             fees                REAL DEFAULT 0.0,
             slippage            REAL DEFAULT 0.0,
+            fired_levels        TEXT DEFAULT '',
+            highest_stop_pnl    REAL DEFAULT -20.0,
+            peak_multiple       REAL DEFAULT 1.0,
             updated_at          REAL
         )
         """)
+
+        # Add new columns to paper_lab_trades if they don't exist
+        new_paper_lab_columns = [
+            "ALTER TABLE paper_lab_trades ADD COLUMN fired_levels TEXT DEFAULT ''",
+            "ALTER TABLE paper_lab_trades ADD COLUMN highest_stop_pnl REAL DEFAULT -20.0",
+            "ALTER TABLE paper_lab_trades ADD COLUMN peak_multiple REAL DEFAULT 1.0",
+        ]
+        for stmt in new_paper_lab_columns:
+            try:
+                cursor.execute(stmt)
+            except Exception:
+                pass
 
         # ======================================================
         # PAPER LAB PARTIAL SELLS

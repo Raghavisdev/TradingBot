@@ -238,39 +238,202 @@ def _evaluate_composite_exit_moonbag(position, stop_loss_pct=-20.0, levels=None,
     return ("HOLD", 0, "")
 
 
-class Strategy_S6(BaseLabStrategy):
+class Strategy_S6_Moonshot_Ladder(BaseLabStrategy):
     """
-    S6: A_Imm_$25_P1_SL-20_MB5 (version 1.0)
-    Entry: Immediate, fixed $25
-    Exit: P1 (+25%->25%, +50%->25%, +100%->25%), trailing after +25%, hard stop -20%
-    Moonbag: 5% of original investment retained as permanent runner
+    S6: S6_Moonshot_Ladder (version 1.0)
+    Phase 4 Paper Lab Strategy.
+
+    Objective:
+        Capture large crypto runners (2x, 5x, 10x, 100x+) while progressively realizing profit and retaining a 30% moonbag.
+
+    Entry:
+        - final_score >= 65.0
+        - Multi-factor momentum & market health confirmation on available signal/snapshot fields
+        - Capital-Aware Position Sizing:
+            Base size = 1.0% of S6 current total equity ($500 starting equity -> $5.00).
+            Drawdown tier scaling (relative to peak equity):
+                >= 95% of peak equity  -> 1.00%
+                90% - 95% of peak      -> 0.75%
+                80% - 90% of peak      -> 0.50%
+                < 80% of peak          -> 0.25%
+        - Portfolio limits:
+            Max 8 simultaneous S6 positions.
+            Max 15% total deployed capital limit.
+
+    Profit Ladder (relative to original position):
+        - At +20%:   sell 20% original
+        - At +50%:   sell 10% original
+        - At +100%:  sell 10% original
+        - At +200%:  sell 10% original
+        - At +500%:  sell 10% original
+        - At +1000%: sell 10% original
+        - Remaining 30% original retained as permanent moonbag runner.
+
+    Risk Management:
+        - Initial hard stop: -20.0%
+        - Breakeven protection after +20% return.
+        - Dynamic trailing stop distances based on peak return:
+            +20% to +50%:   15%
+            +50% to +100%:  20%
+            +100% to +300%: 25%
+            +300% to +1000%: 30%
+            > +1000%:        35%
+        - Stop level is unloosened (monotonically non-decreasing stop threshold).
     """
-    strategy_id      = "A_Imm_$25_P1_SL-20_MB5"
+
+    strategy_id      = "S6_Moonshot_Ladder"
     strategy_version = "1.0"
-    moonbag_pct      = 5.0
+    moonbag_pct      = 30.0
+    initial_cash     = 500.0
+    max_open         = 8
+
+    ladder_levels = [
+        (20.0, 20.0),
+        (50.0, 10.0),
+        (100.0, 10.0),
+        (200.0, 10.0),
+        (500.0, 10.0),
+        (1000.0, 10.0),
+    ]
+
+    def compute_entry_quality(self, signal) -> float:
+        """
+        Computes weighted Entry Quality Score Q in [0.0, 1.0].
+        Treats features as weighted evidence rather than rigid gates.
+        """
+        # 1. GT stars (1-3 scale)
+        gt = float(signal.get("gt_score") or 2.0)
+        q_gt = 1.0 if gt >= 3 else (0.5 if gt >= 2 else 0.0)
+
+        # 2. Liquidity ($)
+        liq = float(signal.get("liquidity") or 0.0)
+        q_liq = 1.0 if liq >= 10000 else (0.5 if liq >= 1000 else (0.2 if liq > 0 else 0.5))
+
+        # 3. Buy/Sell Ratio
+        buys = int(signal.get("buys") or signal.get("buys_5m") or 0)
+        sells = int(signal.get("sells") or signal.get("sells_5m") or 0)
+        bs_ratio = (buys / sells) if sells > 0 else (float(buys) if buys > 0 else 1.0)
+        q_bs = 1.0 if bs_ratio >= 1.5 else (0.8 if bs_ratio >= 1.2 else (0.5 if bs_ratio >= 0.8 else 0.2))
+
+        # 4. Effective Entry Market Cap ($)
+        mc = float(signal.get("signal_market_cap") or signal.get("snap_mc") or 35000.0)
+        q_mc = 1.0 if 30000 <= mc <= 50000 else (0.6 if (20000 <= mc < 30000 or 50000 < mc <= 100000) else 0.3)
+
+        # 5. Final Score (0-100)
+        fs = float(signal.get("final_score") or 60.0)
+        q_fs = 1.0 if fs >= 70 else (0.8 if fs >= 65 else (0.6 if fs >= 60 else 0.4))
+
+        # Weighted Quality Score Q
+        Q = 0.20 * q_gt + 0.25 * q_liq + 0.25 * q_bs + 0.15 * q_mc + 0.15 * q_fs
+        return min(max(Q, 0.0), 1.0)
 
     def evaluate_entry(self, signal, portfolio) -> float:
         sig_id = signal.get("signal_id")
         if portfolio.has_traded_signal(sig_id):
             return 0.0
-        amount = 25.0
-        return amount if portfolio.can_open(amount) else 0.0
+
+        if signal.get("valid") is False:
+            return 0.0
+
+        # Calculate Quality Score Q
+        Q = self.compute_entry_quality(signal)
+
+        # Base sizing tiers relative to $500 equity:
+        # Q < 0.35 -> $2.00 (0.4%)
+        # 0.35 <= Q < 0.60 -> $5.00 (1.0%)
+        # 0.60 <= Q < 0.80 -> $9.00 (1.8%)
+        # Q >= 0.80 -> $14.00 (2.8%)
+        if Q < 0.35:
+            size_pct = 0.0040
+        elif Q < 0.60:
+            size_pct = 0.0100
+        elif Q < 0.80:
+            size_pct = 0.0180
+        else:
+            size_pct = 0.0280
+
+        total_eq = portfolio.total_equity
+        if total_eq <= 0:
+            return 0.0
+
+        peak_eq = max(getattr(portfolio, "initial_cash", 500.0), getattr(portfolio, "_peak_equity", total_eq))
+        equity_ratio = total_eq / peak_eq if peak_eq > 0 else 1.0
+
+        if equity_ratio >= 0.95:
+            dd_factor = 1.00
+        elif equity_ratio >= 0.90:
+            dd_factor = 0.75
+        elif equity_ratio >= 0.80:
+            dd_factor = 0.50
+        else:
+            dd_factor = 0.25
+
+        amount = total_eq * size_pct * dd_factor
+
+        # Minimum exploratory allocation is $2.00 at baseline $500 equity
+        if amount < 2.0 and Q >= 0.1 and total_eq >= 100.0:
+            amount = 2.0
+
+        # Enforce portfolio limits: max 8 positions, max 15% total deployed capital limit
+        can_open = portfolio.can_open_capital_aware(amount, max_deployed_pct=0.15) if hasattr(portfolio, "can_open_capital_aware") else portfolio.can_open(amount)
+        if not can_open:
+            return 0.0
+
+        return amount
 
     def evaluate_exit(self, snapshot, position) -> tuple:
-        levels = [(25, 25), (50, 25), (100, 25)]
-        return _evaluate_composite_exit_moonbag(
-            position, stop_loss_pct=-20.0, levels=levels,
-            trailing_dist=20.0, trailing_act=25.0, moonbag_pct=5.0
-        )
+        """
+        Returns exit action:
+            ('HOLD', 0, '')
+            ('SELL_ALL', 100, reason)
+            ('SELL_PCT_LADDER', crossed_levels, reason)
+        """
+        current_pnl = round(position.pnl_pct, 6)
+        peak_pnl    = round(position.highest_pnl_pct, 6)
+
+        # 1. HARD STOP LOSS (-20.0%) if peak never reached breakeven (+20%)
+        if current_pnl <= -20.0 and peak_pnl < 20.0:
+            return ("SELL_ALL", 100, "Hard Stop Loss -20.0%")
+
+        # 2. PROFIT LADDER LEVEL EVALUATION
+        crossed = []
+        for target_pct, orig_sell_pct in self.ladder_levels:
+            if target_pct in position.fired_ladder_levels:
+                continue
+            if current_pnl >= target_pct - 1e-5:
+                crossed.append((target_pct, orig_sell_pct))
+
+        if crossed:
+            return ("SELL_PCT_LADDER", crossed, f"Profit Target +{crossed[0][0]:g}%")
+
+        # 3. DYNAMIC TRAILING STOP & BREAKEVEN PROTECTION (after +20% peak)
+        if peak_pnl >= 20.0:
+            if peak_pnl < 50.0:
+                dist = 15.0
+            elif peak_pnl < 100.0:
+                dist = 20.0
+            elif peak_pnl < 300.0:
+                dist = 25.0
+            elif peak_pnl < 1000.0:
+                dist = 30.0
+            else:
+                dist = 35.0
+
+            breakeven_stop = 0.0
+            candidate_stop = max(breakeven_stop, peak_pnl - dist)
+
+            effective_stop = max(getattr(position, "highest_stop_pnl_pct", -20.0), candidate_stop)
+            position.highest_stop_pnl_pct = effective_stop
+
+            if current_pnl <= effective_stop:
+                return ("SELL_ALL", 100,
+                        f"Trailing Stop (peak={peak_pnl:.1f}%, now={current_pnl:.1f}%, stop={effective_stop:.1f}%)")
+
+        return ("HOLD", 0, "")
 
 
+# Legacy / Experimental Moonbag Strategy definitions
 class Strategy_S7(BaseLabStrategy):
-    """
-    S7: A_Imm_$25_P1_SL-20_MB10 (version 1.0)
-    Entry: Immediate, fixed $25
-    Exit: P1, trailing after +25%, hard stop -20%
-    Moonbag: 10% of original investment retained as permanent runner
-    """
     strategy_id      = "A_Imm_$25_P1_SL-20_MB10"
     strategy_version = "1.0"
     moonbag_pct      = 10.0
@@ -291,12 +454,6 @@ class Strategy_S7(BaseLabStrategy):
 
 
 class Strategy_S8(BaseLabStrategy):
-    """
-    S8: A_Imm_$25_P1_SL-20_MB20 (version 1.0)
-    Entry: Immediate, fixed $25
-    Exit: P1, trailing after +25%, hard stop -20%
-    Moonbag: 20% of original investment retained as permanent runner
-    """
     strategy_id      = "A_Imm_$25_P1_SL-20_MB20"
     strategy_version = "1.0"
     moonbag_pct      = 20.0
@@ -319,8 +476,8 @@ class Strategy_S8(BaseLabStrategy):
 def get_initial_strategies(include_moonbag: bool = False):
     """
     Returns list of Paper Lab strategy instances.
-    Default (include_moonbag=False) returns S1 - S5 for live forward testing.
-    If include_moonbag=True, returns S1 - S8 including experimental Moonbag strategies.
+    Default returns S1 - S6 (S6_Moonshot_Ladder added alongside S1-S5).
+    If include_moonbag=True, returns S1 - S8 including experimental Moonbag strategies S7, S8.
     """
     strats = [
         Strategy_S1(),
@@ -328,10 +485,10 @@ def get_initial_strategies(include_moonbag: bool = False):
         Strategy_S3(),
         Strategy_S4(),
         Strategy_S5(),
+        Strategy_S6_Moonshot_Ladder(),
     ]
     if include_moonbag:
         strats.extend([
-            Strategy_S6(),
             Strategy_S7(),
             Strategy_S8(),
         ])

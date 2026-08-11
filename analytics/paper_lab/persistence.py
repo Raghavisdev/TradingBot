@@ -60,8 +60,9 @@ class PaperLabPersistence:
                     symbol, contract, status, entry_time, entry_price,
                     entry_market_cap, invested, tokens, remaining_pct,
                     exit_time, exit_price, exit_market_cap, exit_reason,
-                    realized_pnl, realized_pct, mfe, mae, fees, slippage, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    realized_pnl, realized_pct, mfe, mae, fees, slippage,
+                    fired_levels, highest_stop_pnl, peak_multiple, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, (
                 trade_dict.get("trade_id"),
                 trade_dict.get("strategy_id"),
@@ -86,6 +87,9 @@ class PaperLabPersistence:
                 trade_dict.get("mae", 0.0),
                 trade_dict.get("fees", 0.0),
                 trade_dict.get("slippage", 0.0),
+                trade_dict.get("fired_levels", ""),
+                trade_dict.get("highest_stop_pnl", -20.0),
+                trade_dict.get("peak_multiple", 1.0),
                 now
             ))
             conn.commit()
@@ -117,6 +121,9 @@ class PaperLabPersistence:
                     realized_pct = ?,
                     mfe = ?,
                     mae = ?,
+                    fired_levels = ?,
+                    highest_stop_pnl = ?,
+                    peak_multiple = ?,
                     updated_at = ?
                 WHERE trade_id = ?
             """, (
@@ -130,6 +137,9 @@ class PaperLabPersistence:
                 trade_dict.get("realized_pct"),
                 trade_dict.get("mfe"),
                 trade_dict.get("mae"),
+                trade_dict.get("fired_levels", ""),
+                trade_dict.get("highest_stop_pnl", -20.0),
+                trade_dict.get("peak_multiple", 1.0),
                 now,
                 trade_dict.get("trade_id")
             ))

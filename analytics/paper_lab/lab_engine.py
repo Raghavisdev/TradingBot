@@ -48,8 +48,10 @@ class PaperLabEngine:
         # Initialize strategies & portfolios
         for strat in get_initial_strategies(include_moonbag=include_moonbag):
             sid = strat.strategy_id
+            strat_cash = getattr(strat, "initial_cash", initial_cash)
+            max_op     = getattr(strat, "max_open", 10)
             self.strategies[sid] = strat
-            self.portfolios[sid] = LabPortfolio(sid, initial_cash=initial_cash)
+            self.portfolios[sid] = LabPortfolio(sid, initial_cash=strat_cash, max_open=max_op)
 
         # Recover historical traded signal_ids & open trades from DB
         self._recover_state()
@@ -94,6 +96,19 @@ class PaperLabEngine:
                 pos.realized_pnl  = float(r.get("realized_pnl") or 0.0)
                 pos.mfe           = float(r.get("mfe") or 0.0)
                 pos.mae           = float(r.get("mae") or 0.0)
+
+                fired_raw = r.get("fired_levels")
+                pos.fired_ladder_levels = set()
+                if fired_raw:
+                    for part in str(fired_raw).split(","):
+                        part = part.strip()
+                        if part:
+                            try:
+                                pos.fired_ladder_levels.add(float(part))
+                            except ValueError:
+                                pass
+                if r.get("highest_stop_pnl") is not None:
+                    pos.highest_stop_pnl_pct = float(r.get("highest_stop_pnl"))
 
                 # Subtract cash for recovered open position if not already accounted for
                 port.cash -= pos.invested * (pos.remaining_pct / 100.0)
@@ -238,6 +253,27 @@ class PaperLabEngine:
                         port.close_position(pos, reason, ts, price, mc)
                         self.persistence.update_trade(pos.to_dict())
                         print(f"[PAPER LAB] [{sid}] CLOSE {pos.symbol} | {reason} | PnL={pos.realized_pnl:+.2f}")
+
+                    elif action == "SELL_PCT_LADDER":
+                        crossed = pct  # list of (target_pct, orig_sell_pct)
+                        for target_pct, orig_sell_pct in crossed:
+                            if target_pct in pos.fired_ladder_levels:
+                                continue
+                            if pos.remaining_pct <= 0:
+                                break
+                            pct_of_rem = (orig_sell_pct / pos.remaining_pct) * 100.0 if pos.remaining_pct > 0 else 0.0
+                            pct_of_rem = min(pct_of_rem, 100.0)
+                            rec = port.close_position_by_partial_sell(pos, pct_of_rem, f"Profit Target +{target_pct:g}%", ts, price, mc)
+                            if rec:
+                                pos.fired_ladder_levels.add(target_pct)
+                                self.persistence.save_partial_sell(rec)
+                                self.persistence.update_trade(pos.to_dict())
+                                print(f"[PAPER LAB] [{sid}] LADDER PARTIAL -{orig_sell_pct:g}% orig ({pos.symbol}) | Target +{target_pct:g}%")
+
+                        if pos.remaining_pct <= 0.01:
+                            if pos in port.open_positions:
+                                port.open_positions.remove(pos)
+                            port.closed_trades.append(pos.to_dict())
 
                     elif action == "SELL_PCT" and pct > 0:
                         rec = port.close_position_by_partial_sell(pos, pct, reason, ts, price, mc)

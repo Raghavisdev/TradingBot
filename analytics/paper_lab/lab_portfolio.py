@@ -51,6 +51,12 @@ class LabPosition:
         self.mae              = 0.0
         self.highest_pnl_pct  = 0.0
 
+        # S6 Accounting & Profit Ladder state
+        self.original_invested    = self.invested
+        self.fired_ladder_levels  = set()
+        self.highest_stop_pnl_pct = -20.0
+        self.add_ons              = []
+
         # Exit state
         self.status      = "OPEN"
         self.exit_time   = None
@@ -64,6 +70,16 @@ class LabPosition:
         self.volume_history    = []
         self.liquidity_history = []
         self.buy_ratio_history = []
+
+    @property
+    def remaining_quantity(self):
+        """Remaining tokens held."""
+        return self.tokens * (self.remaining_pct / 100.0)
+
+    @property
+    def peak_multiple(self):
+        """Peak multiple reached since entry (e.g. 2.0x for +100%)."""
+        return max(1.0, 1.0 + (self.highest_pnl_pct / 100.0))
 
     @property
     def pnl_pct(self):
@@ -169,6 +185,25 @@ class LabPosition:
         self.partial_sells.append(record)
         return record
 
+    def do_add_on(self, amount, price, ts, mc):
+        """Execute controlled add-on (pyramiding) using realized profit."""
+        if amount <= 0 or price <= 0:
+            return None
+        new_tokens = amount / price
+        self.tokens += new_tokens
+        self.invested += amount
+        rec = {
+            "trade_id":      self.trade_id,
+            "signal_id":     self.signal_id,
+            "strategy_id":   self.strategy_id,
+            "add_on_time":   ts,
+            "add_on_price":  price,
+            "add_on_amount": round(amount, 6),
+            "new_tokens":    round(new_tokens, 6),
+        }
+        self.add_ons.append(rec)
+        return rec
+
     def close(self, reason, ts, price, mc):
         """Close full remaining position."""
         if self.remaining_pct > 0:
@@ -183,37 +218,43 @@ class LabPosition:
     def to_dict(self):
         """Returns dict matching database column layout."""
         realized_pct = (self.realized_pnl / self.invested * 100.0) if self.invested > 0 else 0.0
+        fired_str = ",".join(str(int(x) if isinstance(x, (int, float)) and float(x).is_integer() else x) for x in sorted(self.fired_ladder_levels))
         return {
-            "trade_id":         self.trade_id,
-            "strategy_id":       self.strategy_id,
-            "strategy_version":  self.strategy_version,
-            "signal_id":        self.signal_id,
-            "symbol":           self.symbol,
-            "contract":         self.contract,
-            "status":           self.status,
-            "entry_time":       self.entry_time,
-            "entry_price":      self.entry_price,
-            "entry_market_cap": self.entry_mc,
-            "invested":         round(self.invested, 4),
-            "tokens":           round(self.tokens, 6),
-            "remaining_pct":    round(self.remaining_pct, 4),
-            "exit_time":        self.exit_time,
-            "exit_price":       self.exit_price,
-            "exit_market_cap":  self.exit_mc,
-            "exit_reason":      self.exit_reason,
-            "realized_pnl":     round(self.realized_pnl, 6),
-            "realized_pct":     round(realized_pct, 4),
-            "mfe":              round(self.mfe, 4),
-            "mae":              round(self.mae, 4),
-            "fees":             0.0,
-            "slippage":         0.0,
+            "trade_id":           self.trade_id,
+            "strategy_id":         self.strategy_id,
+            "strategy_version":    self.strategy_version,
+            "signal_id":          self.signal_id,
+            "symbol":             self.symbol,
+            "contract":           self.contract,
+            "status":             self.status,
+            "entry_time":         self.entry_time,
+            "entry_price":        self.entry_price,
+            "entry_market_cap":   self.entry_mc,
+            "invested":           round(self.invested, 4),
+            "original_invested":  round(self.original_invested, 4),
+            "tokens":             round(self.tokens, 6),
+            "remaining_pct":      round(self.remaining_pct, 4),
+            "remaining_quantity": round(self.remaining_quantity, 6),
+            "exit_time":          self.exit_time,
+            "exit_price":         self.exit_price,
+            "exit_market_cap":    self.exit_mc,
+            "exit_reason":        self.exit_reason,
+            "realized_pnl":       round(self.realized_pnl, 6),
+            "realized_pct":       round(realized_pct, 4),
+            "mfe":                round(self.mfe, 4),
+            "mae":                round(self.mae, 4),
+            "fees":               0.0,
+            "slippage":           0.0,
+            "fired_levels":       fired_str,
+            "highest_stop_pnl":   round(self.highest_stop_pnl_pct, 4),
+            "peak_multiple":      round(self.peak_multiple, 4),
         }
 
 
 class LabPortfolio:
     """
     Isolated portfolio per strategy in Paper Lab.
-    Starting cash = $100.00 by default.
+    Starting cash = $100.00 by default ($500 for S6).
     """
 
     def __init__(self, strategy_id, initial_cash=100.0, max_open=10, min_cash=2.0):
@@ -239,6 +280,20 @@ class LabPortfolio:
         if self.cash - amount < self.min_cash:
             return False
         if amount <= 0:
+            return False
+        return True
+
+    def can_open_capital_aware(self, amount, max_deployed_pct=0.15):
+        """
+        True if portfolio can open trade within max_open limit AND max_deployed_pct limit.
+        """
+        if not self.can_open(amount):
+            return False
+        eq = self.total_equity
+        if eq <= 0:
+            return False
+        current_deployed = sum(p.invested * (p.remaining_pct / 100.0) for p in self.open_positions)
+        if (current_deployed + amount) > max_deployed_pct * eq:
             return False
         return True
 
@@ -291,6 +346,13 @@ class LabPortfolio:
         if record:
             self.cash += record["proceeds"]
         return record
+
+    def execute_add_on(self, pos, amount, price, ts, mc):
+        """Execute controlled add-on (pyramiding), deducting amount from cash."""
+        if amount <= 0 or amount > self.cash:
+            return None
+        self.cash -= amount
+        return pos.do_add_on(amount, price, ts, mc)
 
     @property
     def total_position_value(self):
