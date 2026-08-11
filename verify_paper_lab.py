@@ -591,18 +591,18 @@ def main():
     strat_s6 = engine_s6.strategies["S6_Moonshot_Ladder"]
     port_test = LabPortfolio("S6_Moonshot_Ladder", initial_cash=500.0, max_open=8)
 
-    # Normal Quality Signal (Q ~ 0.55) -> Normal tier ($5.00)
-    dummy_sig = {"signal_id": "SIG_SZ_1", "final_score": 62.0, "gt_score": 2.0, "liquidity": 2000.0, "buys": 50, "sells": 50}
+    # Normal Quality Signal (Q ~ 0.58, ratio=1.0) -> Normal tier ($5.00)
+    dummy_sig = {"signal_id": "SIG_SZ_1", "symbol": "SZ1", "final_score": 62.0, "gt_score": 2.0, "liquidity": 2000.0, "signal_market_cap": 35000.0, "buys": 50, "sells": 50}
     sz1 = strat_s6.evaluate_entry(dummy_sig, port_test)
     chk("16. Normal Quality Signal receives $5.00 position allocation", abs(sz1 - 5.0) < 0.01)
 
-    # Borderline Signal (Q < 0.35) -> Exploratory tier ($2.00)
-    low_sig = {"signal_id": "SIG_SZ_LOW", "final_score": 52.0, "gt_score": 1.0, "liquidity": 500.0, "buys": 10, "sells": 20}
+    # Borderline Signal (final_score=60.0, Q < 0.35, min $2.00 floor) -> Exploratory tier ($2.00)
+    low_sig = {"signal_id": "SIG_SZ_LOW", "symbol": "LOW", "final_score": 60.0, "gt_score": 1.0, "liquidity": 500.0, "buys": 10, "sells": 20}
     sz_low = strat_s6.evaluate_entry(low_sig, port_test)
     chk("16. Borderline signal receives $2.00 exploratory allocation", abs(sz_low - 2.0) < 0.01)
 
-    # High Quality Signal (Q >= 0.80) -> Exceptional tier ($14.00)
-    top_sig = {"signal_id": "SIG_SZ_TOP", "final_score": 75.0, "gt_score": 3.0, "liquidity": 15000.0, "buys": 100, "sells": 50}
+    # High Quality Signal (Q >= 0.80, ratio=1.1) -> Exceptional tier ($14.00)
+    top_sig = {"signal_id": "SIG_SZ_TOP", "symbol": "TOP", "final_score": 75.0, "gt_score": 3.0, "liquidity": 15000.0, "signal_market_cap": 38000.0, "buys": 55, "sells": 50}
     sz_top = strat_s6.evaluate_entry(top_sig, port_test)
     chk("16. High Quality signal receives $14.00 exceptional allocation", abs(sz_top - 14.0) < 0.01)
 

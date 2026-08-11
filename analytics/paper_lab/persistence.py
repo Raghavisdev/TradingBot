@@ -22,10 +22,11 @@ _DB_PATH = os.path.abspath(os.path.join(_HERE, "..", "..", "database", "trading.
 
 
 class PaperLabPersistence:
-    """Manages SQLite storage for Paper Lab trades, partial sells, and equity."""
+    """Manages SQLite storage for Paper Lab trades, partial sells, equity, and forward metadata."""
 
     def __init__(self, db_path=None):
         self.db_path = db_path or _DB_PATH
+        self._init_metadata_table()
 
     def _get_conn(self):
         conn = sqlite3.connect(
@@ -41,6 +42,45 @@ class PaperLabPersistence:
         finally:
             cur.close()
         return conn
+
+    def _init_metadata_table(self):
+        """Creates paper_lab_s6_forward_metadata table if it does not exist."""
+        try:
+            conn = self._get_conn()
+            cur = conn.cursor()
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS paper_lab_s6_forward_metadata (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    trade_id TEXT UNIQUE,
+                    signal_id TEXT,
+                    experiment_id TEXT,
+                    run_type TEXT DEFAULT 'forward',
+                    timestamp REAL,
+                    symbol TEXT,
+                    contract TEXT,
+                    entry_price REAL,
+                    final_score REAL,
+                    gt_score REAL,
+                    liquidity REAL,
+                    effective_entry_mc REAL,
+                    buys INTEGER,
+                    sells INTEGER,
+                    buy_sell_ratio REAL,
+                    computed_Q REAL,
+                    base_allocation REAL,
+                    multiplier REAL,
+                    final_allocation REAL,
+                    portfolio_equity REAL,
+                    deployed_capital REAL,
+                    entry_reason TEXT,
+                    created_at REAL
+                );
+            """)
+            conn.commit()
+            cur.close()
+            conn.close()
+        except Exception as e:
+            print(f"[PAPER LAB PERSISTENCE] Metadata table setup notice: {e}")
 
     # ============================================================
     # TRADES PERSISTENCE
@@ -257,6 +297,55 @@ class PaperLabPersistence:
                     result[strat] = set()
                 result[strat].add(sig)
             return result
+        finally:
+            cur.close()
+            conn.close()
+
+    def save_s6_forward_metadata(self, meta_dict):
+        """
+        Saves forward S6 entry metadata audit row into paper_lab_s6_forward_metadata.
+        """
+        conn = self._get_conn()
+        cur = conn.cursor()
+        now = time.time()
+        try:
+            cur.execute("""
+                INSERT OR REPLACE INTO paper_lab_s6_forward_metadata (
+                    trade_id, signal_id, experiment_id, run_type, timestamp,
+                    symbol, contract, entry_price, final_score, gt_score,
+                    liquidity, effective_entry_mc, buys, sells, buy_sell_ratio,
+                    computed_Q, base_allocation, multiplier, final_allocation,
+                    portfolio_equity, deployed_capital, entry_reason, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                meta_dict.get("trade_id"),
+                meta_dict.get("signal_id"),
+                meta_dict.get("experiment_id", "S6_V12_FORWARD_DEFAULT"),
+                meta_dict.get("run_type", "forward"),
+                meta_dict.get("timestamp", now),
+                meta_dict.get("symbol"),
+                meta_dict.get("contract", ""),
+                meta_dict.get("entry_price"),
+                meta_dict.get("final_score"),
+                meta_dict.get("gt_score"),
+                meta_dict.get("liquidity"),
+                meta_dict.get("effective_entry_mc"),
+                meta_dict.get("buys"),
+                meta_dict.get("sells"),
+                meta_dict.get("buy_sell_ratio"),
+                meta_dict.get("computed_Q"),
+                meta_dict.get("base_allocation"),
+                meta_dict.get("multiplier"),
+                meta_dict.get("final_allocation"),
+                meta_dict.get("portfolio_equity"),
+                meta_dict.get("deployed_capital"),
+                meta_dict.get("entry_reason", "Qualified S6 Entry"),
+                now
+            ))
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            print(f"[PAPER LAB PERSISTENCE ERROR] save_s6_forward_metadata failed: {e}")
         finally:
             cur.close()
             conn.close()

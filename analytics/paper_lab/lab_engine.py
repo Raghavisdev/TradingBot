@@ -96,6 +96,7 @@ class PaperLabEngine:
                 pos.realized_pnl  = float(r.get("realized_pnl") or 0.0)
                 pos.mfe           = float(r.get("mfe") or 0.0)
                 pos.mae           = float(r.get("mae") or 0.0)
+                pos.highest_pnl_pct = pos.mfe  # Restore peak multiple / PnL for trailing stop evaluation
 
                 fired_raw = r.get("fired_levels")
                 pos.fired_ladder_levels = set()
@@ -176,10 +177,63 @@ class PaperLabEngine:
                     )
                     if pos:
                         self.persistence.save_trade_open(pos.to_dict())
+                        if sid == "S6_Moonshot_Ladder":
+                            self._save_s6_metadata(pos, signal_dict, port, strat, amount, ts, price, mc)
                         print(f"[PAPER LAB] [{sid}] BUY {symbol} | ${amount:.2f} @ ${price:.8f}")
 
         except Exception as e:
             print(f"[PAPER LAB ENGINE ERROR] on_new_signal failed: {e}")
+
+    def _save_s6_metadata(self, pos, signal_dict, port, strat, amount, ts, price, mc):
+        try:
+            Q = strat.compute_entry_quality(signal_dict) if hasattr(strat, "compute_entry_quality") else 0.0
+            buys = signal_dict.get("buys") if signal_dict.get("buys") is not None else signal_dict.get("buys_5m")
+            sells = signal_dict.get("sells") if signal_dict.get("sells") is not None else signal_dict.get("sells_5m")
+            if buys is not None and sells is not None and float(sells or 0) > 0:
+                bs_ratio = float(buys) / float(sells)
+            elif signal_dict.get("buy_sell_ratio") is not None:
+                bs_ratio = float(signal_dict.get("buy_sell_ratio"))
+            else:
+                bs_ratio = 1.0
+
+            if Q < 0.35: base_size = 2.00
+            elif Q < 0.60: base_size = 5.00
+            elif Q < 0.80: base_size = 9.00
+            else: base_size = 14.00
+
+            if bs_ratio < 1.0: mult = 0.75
+            elif bs_ratio < 1.2: mult = 1.00
+            elif bs_ratio < 1.5: mult = 1.25
+            else: mult = 1.50
+
+            dep_cap = sum(p.invested * (p.remaining_pct / 100.0) for p in port.open_positions)
+            meta = {
+                "trade_id": pos.trade_id,
+                "signal_id": pos.signal_id,
+                "experiment_id": f"S6_V12_FORWARD_{int(ts)}",
+                "run_type": "forward",
+                "timestamp": ts,
+                "symbol": pos.symbol,
+                "contract": pos.contract,
+                "entry_price": price,
+                "final_score": float(signal_dict.get("final_score") or 0.0),
+                "gt_score": float(signal_dict.get("gt_score") or 0.0),
+                "liquidity": float(signal_dict.get("liquidity") or 0.0),
+                "effective_entry_mc": mc,
+                "buys": int(buys) if buys is not None else None,
+                "sells": int(sells) if sells is not None else None,
+                "buy_sell_ratio": round(bs_ratio, 2),
+                "computed_Q": round(Q, 3),
+                "base_allocation": base_size,
+                "multiplier": mult,
+                "final_allocation": amount,
+                "portfolio_equity": round(port.total_equity, 2),
+                "deployed_capital": round(dep_cap, 2),
+                "entry_reason": "S6 v1.2 Forward Qualified Entry"
+            }
+            self.persistence.save_s6_forward_metadata(meta)
+        except Exception as e:
+            print(f"[PAPER LAB ENGINE] Failed to save S6 forward metadata: {e}")
 
     # ============================================================
     # SNAPSHOT UPDATE (on_snapshot)
@@ -236,6 +290,8 @@ class PaperLabEngine:
                             )
                             if pos:
                                 self.persistence.save_trade_open(pos.to_dict())
+                                if sid == "S6_Moonshot_Ladder":
+                                    self._save_s6_metadata(pos, eval_sig, port, strat, amount, ts, price, mc)
                                 print(f"[PAPER LAB] [{sid}] BUY (1st Snap) {symbol} | ${amount:.2f} @ ${price:.8f}")
 
             for sid, strat in self.strategies.items():

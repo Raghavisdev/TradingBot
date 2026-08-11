@@ -206,3 +206,116 @@ def _write_text_report(perf_rows, signals_considered_count):
     with open(_path("PAPER_LAB_REPORT.txt"), "w", encoding="utf-8") as f:
         f.write(report_text)
     print("  [REPORT] PAPER_LAB_REPORT.txt generated")
+
+
+def generate_s6_forward_paper_report(db_path=None):
+    """
+    Generates S6_FORWARD_PAPER_REPORT.txt strictly for forward S6 v1.2 trades.
+    Excludes all historical backtest rows.
+    """
+    import sqlite3
+    import numpy as np
+
+    path = db_path or os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "database", "trading.db"))
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT * FROM paper_lab_trades
+        WHERE strategy_id = 'S6_Moonshot_Ladder' AND strategy_version = '1.2'
+        ORDER BY id ASC
+    """)
+    trades = [dict(r) for r in cur.fetchall()]
+
+    cur.execute("""
+        SELECT * FROM paper_lab_s6_forward_metadata
+        ORDER BY id ASC
+    """)
+    metadata_rows = [dict(r) for r in cur.fetchall()]
+
+    cur.execute("""
+        SELECT * FROM paper_lab_equity
+        WHERE strategy_id = 'S6_Moonshot_Ladder'
+        ORDER BY timestamp ASC
+    """)
+    equity_rows = [dict(r) for r in cur.fetchall()]
+    conn.close()
+
+    start_eq = 500.0
+    current_eq = equity_rows[-1]["equity"] if equity_rows else start_eq
+    net_pnl = current_eq - start_eq
+    return_pct = (net_pnl / start_eq) * 100.0 if start_eq > 0 else 0.0
+
+    completed_trades = [t for t in trades if t["status"] == "CLOSED"]
+    n_entries = len(trades)
+    pnls = [t.get("realized_pnl", 0.0) for t in completed_trades]
+    wins = [p for p in pnls if p > 0]
+    losses = [p for p in pnls if p < 0]
+
+    win_rate = (len(wins) / len(completed_trades) * 100.0) if completed_trades else 0.0
+    gross_gp = sum(wins)
+    gross_gl = abs(sum(losses))
+    pf = (gross_gp / gross_gl) if gross_gl > 0 else (999.0 if gross_gp > 0 else 0.0)
+
+    avg_w = np.mean(wins) if wins else 0.0
+    avg_l = np.mean(losses) if losses else 0.0
+
+    # Drawdown from equity series
+    eq_vals = [e["equity"] for e in equity_rows] if equity_rows else [start_eq]
+    peak = start_eq
+    max_dd = 0.0
+    for v in eq_vals:
+        if v > peak: peak = v
+        dd = (peak - v) / peak * 100.0 if peak > 0 else 0.0
+        if dd > max_dd: max_dd = dd
+
+    allocs = [t.get("invested", 0.0) for t in trades]
+    avg_alloc = np.mean(allocs) if allocs else 0.0
+
+    num_exploratory = sum(1 for a in allocs if a <= 2.50)
+    num_normal = sum(1 for a in allocs if 2.50 < a <= 6.50)
+    num_strong = sum(1 for a in allocs if 6.50 < a <= 12.50)
+    num_exceptional = sum(1 for a in allocs if a > 12.50)
+
+    lines = []
+    lines.append("============================================================")
+    lines.append("  S6_MOONSHOT_LADDER v1.2 FORWARD PAPER-LAB VALIDATION REPORT")
+    lines.append("============================================================")
+    lines.append(f"  Report Time             : {datetime.now().isoformat()}")
+    lines.append(f"  Starting Equity         : ${start_eq:.2f}")
+    lines.append(f"  Current Equity          : ${current_eq:.2f}")
+    lines.append(f"  Net P&L                 : ${net_pnl:+.2f} ({return_pct:+.2f}%)")
+    lines.append(f"  Total Entries           : {n_entries}")
+    lines.append(f"  Completed Trades        : {len(completed_trades)}")
+    lines.append(f"  Wins / Losses           : {len(wins)} / {len(losses)}")
+    lines.append(f"  Win Rate                : {win_rate:.1f}%")
+    lines.append(f"  Profit Factor           : {pf:.2f}")
+    lines.append(f"  Gross Profit            : ${gross_gp:.2f}")
+    lines.append(f"  Gross Loss              : ${gross_gl:.2f}")
+    lines.append(f"  Avg Win / Avg Loss      : ${avg_w:+.2f} / ${avg_l:+.2f}")
+    lines.append(f"  Max Drawdown            : {max_dd:.2f}%")
+    lines.append(f"  Avg Allocation          : ${avg_alloc:.2f}")
+    lines.append("  Allocation Breakdown    :")
+    lines.append(f"    - $2 Exploratory Entries : {num_exploratory}")
+    lines.append(f"    - $5 Normal Entries      : {num_normal}")
+    lines.append(f"    - $9 Strong Entries      : {num_strong}")
+    lines.append(f"    - $14 Exceptional Entries: {num_exceptional}")
+    lines.append("============================================================")
+
+    out_text = "\n".join(lines)
+    _ensure_dir()
+    with open(_path("S6_FORWARD_PAPER_REPORT.txt"), "w", encoding="utf-8") as f:
+        f.write(out_text)
+    print("  [REPORT] S6_FORWARD_PAPER_REPORT.txt generated")
+
+    return {
+        "starting_equity": start_eq,
+        "current_equity": current_eq,
+        "net_pnl": net_pnl,
+        "return_pct": return_pct,
+        "total_entries": n_entries,
+        "win_rate": win_rate,
+        "profit_factor": pf,
+        "max_drawdown": max_dd
+    }

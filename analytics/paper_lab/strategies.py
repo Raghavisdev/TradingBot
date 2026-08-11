@@ -282,7 +282,7 @@ class Strategy_S6_Moonshot_Ladder(BaseLabStrategy):
     """
 
     strategy_id      = "S6_Moonshot_Ladder"
-    strategy_version = "1.0"
+    strategy_version = "1.2"
     moonbag_pct      = 30.0
     initial_cash     = 500.0
     max_open         = 8
@@ -299,63 +299,170 @@ class Strategy_S6_Moonshot_Ladder(BaseLabStrategy):
     def compute_entry_quality(self, signal) -> float:
         """
         Computes weighted Entry Quality Score Q in [0.0, 1.0].
-        Treats features as weighted evidence rather than rigid gates.
+        Features & Weights:
+            - Buy/Sell Ratio: 30%
+            - Liquidity: 25%
+            - Effective Entry Market Cap: 15%
+            - GT Stars (1-3): 15%
+            - Final Score: 15%
+        Missing data reduces quality instead of using favorable defaults.
         """
-        # 1. GT stars (1-3 scale)
-        gt = float(signal.get("gt_score") or 2.0)
-        q_gt = 1.0 if gt >= 3 else (0.5 if gt >= 2 else 0.0)
+        # 1. Buy/Sell Ratio (30% weight)
+        buys = signal.get("buys") if signal.get("buys") is not None else signal.get("buys_5m")
+        sells = signal.get("sells") if signal.get("sells") is not None else signal.get("sells_5m")
 
-        # 2. Liquidity ($)
-        liq = float(signal.get("liquidity") or 0.0)
-        q_liq = 1.0 if liq >= 10000 else (0.5 if liq >= 1000 else (0.2 if liq > 0 else 0.5))
+        if buys is None and sells is None:
+            q_bs = 0.2
+        else:
+            b_cnt = float(buys or 0)
+            s_cnt = float(sells or 0)
+            if s_cnt > 0:
+                bs_ratio = b_cnt / s_cnt
+            elif b_cnt > 0:
+                bs_ratio = min(b_cnt, 3.0)
+            else:
+                bs_ratio = 1.0
 
-        # 3. Buy/Sell Ratio
-        buys = int(signal.get("buys") or signal.get("buys_5m") or 0)
-        sells = int(signal.get("sells") or signal.get("sells_5m") or 0)
-        bs_ratio = (buys / sells) if sells > 0 else (float(buys) if buys > 0 else 1.0)
-        q_bs = 1.0 if bs_ratio >= 1.5 else (0.8 if bs_ratio >= 1.2 else (0.5 if bs_ratio >= 0.8 else 0.2))
+            if bs_ratio < 0.8:
+                q_bs = 0.2
+            elif bs_ratio < 1.2:
+                q_bs = 0.5
+            elif bs_ratio < 1.5:
+                q_bs = 0.8
+            else:
+                q_bs = 1.0
 
-        # 4. Effective Entry Market Cap ($)
-        mc = float(signal.get("signal_market_cap") or signal.get("snap_mc") or 35000.0)
-        q_mc = 1.0 if 30000 <= mc <= 50000 else (0.6 if (20000 <= mc < 30000 or 50000 < mc <= 100000) else 0.3)
+        # 2. Liquidity (25% weight)
+        liq_val = signal.get("liquidity")
+        if liq_val is None:
+            q_liq = 0.0
+        else:
+            liq = float(liq_val)
+            if liq <= 0:
+                q_liq = 0.0
+            elif liq < 1000.0:
+                q_liq = 0.2
+            elif liq < 10000.0:
+                q_liq = 0.6
+            else:
+                q_liq = 1.0
 
-        # 5. Final Score (0-100)
-        fs = float(signal.get("final_score") or 60.0)
-        q_fs = 1.0 if fs >= 70 else (0.8 if fs >= 65 else (0.6 if fs >= 60 else 0.4))
+        # 3. Market Cap (15% weight) - Smooth curve favoring $35k-$44k
+        mc_val = signal.get("signal_market_cap") or signal.get("snap_mc")
+        if mc_val is None or float(mc_val) <= 0:
+            q_mc = 0.0
+        else:
+            mc = float(mc_val)
+            if 35000 <= mc <= 44000:
+                q_mc = 1.0
+            elif 25000 <= mc < 35000:
+                q_mc = 0.6 + 0.4 * ((mc - 25000) / 10000)
+            elif 44000 < mc <= 60000:
+                q_mc = 1.0 - 0.4 * ((mc - 44000) / 16000)
+            elif 15000 <= mc < 25000:
+                q_mc = 0.3 + 0.3 * ((mc - 15000) / 10000)
+            elif 60000 < mc <= 100000:
+                q_mc = 0.6 - 0.4 * ((mc - 60000) / 40000)
+            else:
+                q_mc = 0.2
 
-        # Weighted Quality Score Q
-        Q = 0.20 * q_gt + 0.25 * q_liq + 0.25 * q_bs + 0.15 * q_mc + 0.15 * q_fs
+        # 4. GT Stars (15% weight)
+        gt_val = signal.get("gt_score")
+        if gt_val is None or float(gt_val) <= 0:
+            q_gt = 0.0
+        else:
+            gt = float(gt_val)
+            if gt >= 3:
+                q_gt = 1.0
+            elif gt >= 2:
+                q_gt = 0.6
+            elif gt >= 1:
+                q_gt = 0.2
+            else:
+                q_gt = 0.0
+
+        # 5. Final Score (15% weight)
+        fs_val = signal.get("final_score")
+        if fs_val is None:
+            q_fs = 0.0
+        else:
+            fs = float(fs_val)
+            if fs >= 70.0:
+                q_fs = 1.0
+            elif fs >= 65.0:
+                q_fs = 0.7
+            elif fs >= 60.0:
+                q_fs = 0.3
+            else:
+                q_fs = 0.0
+
+        Q = 0.30 * q_bs + 0.25 * q_liq + 0.15 * q_mc + 0.15 * q_gt + 0.15 * q_fs
         return min(max(Q, 0.0), 1.0)
 
     def evaluate_entry(self, signal, portfolio) -> float:
         sig_id = signal.get("signal_id")
-        if portfolio.has_traded_signal(sig_id):
+        if not sig_id or portfolio.has_traded_signal(sig_id):
             return 0.0
 
+        # Basic Safety Validation
         if signal.get("valid") is False:
             return 0.0
 
-        # Calculate Quality Score Q
+        symbol = signal.get("symbol")
+        if not symbol:
+            return 0.0
+
+        # Final Score Floor check: minimum floor = 60.0 (scores 60-64 remain eligible)
+        fs_val = signal.get("final_score")
+        if fs_val is None or float(fs_val) < 60.0:
+            return 0.0
+
+        # Compute Quality Score Q
         Q = self.compute_entry_quality(signal)
 
-        # Base sizing tiers relative to $500 equity:
-        # Q < 0.35 -> $2.00 (0.4%)
-        # 0.35 <= Q < 0.60 -> $5.00 (1.0%)
-        # 0.60 <= Q < 0.80 -> $9.00 (1.8%)
-        # Q >= 0.80 -> $14.00 (2.8%)
+        # Sizing Tiers at $500 baseline equity:
+        # Q < 0.35      -> $2.00
+        # 0.35 <= Q < 0.60 -> $5.00
+        # 0.60 <= Q < 0.80 -> $9.00
+        # Q >= 0.80      -> $14.00
         if Q < 0.35:
-            size_pct = 0.0040
+            base_size = 2.00
         elif Q < 0.60:
-            size_pct = 0.0100
+            base_size = 5.00
         elif Q < 0.80:
-            size_pct = 0.0180
+            base_size = 9.00
         else:
-            size_pct = 0.0280
+            base_size = 14.00
+
+        # Apply buy_sell_ratio multiplier (Config F)
+        buys = signal.get("buys") if signal.get("buys") is not None else signal.get("buys_5m")
+        sells = signal.get("sells") if signal.get("sells") is not None else signal.get("sells_5m")
+        if buys is not None and sells is not None and float(sells or 0) > 0:
+            bs_ratio = float(buys) / float(sells)
+        elif signal.get("buy_sell_ratio") is not None:
+            bs_ratio = float(signal.get("buy_sell_ratio"))
+        else:
+            bs_ratio = 1.0
+
+        if bs_ratio < 1.0:
+            mult = 0.75
+        elif bs_ratio < 1.2:
+            mult = 1.00
+        elif bs_ratio < 1.5:
+            mult = 1.25
+        else:
+            mult = 1.50
+
+        scaled_base = base_size * mult
 
         total_eq = portfolio.total_equity
         if total_eq <= 0:
             return 0.0
 
+        eq_ratio_to_base = total_eq / getattr(portfolio, "initial_cash", 500.0)
+        unscaled_amount = scaled_base * eq_ratio_to_base
+
+        # Drawdown Scaling
         peak_eq = max(getattr(portfolio, "initial_cash", 500.0), getattr(portfolio, "_peak_equity", total_eq))
         equity_ratio = total_eq / peak_eq if peak_eq > 0 else 1.0
 
@@ -368,13 +475,11 @@ class Strategy_S6_Moonshot_Ladder(BaseLabStrategy):
         else:
             dd_factor = 0.25
 
-        amount = total_eq * size_pct * dd_factor
+        amount = unscaled_amount * dd_factor
+        amount = min(max(amount, 2.00), 18.00)
+        amount = round(amount, 2)
 
-        # Minimum exploratory allocation is $2.00 at baseline $500 equity
-        if amount < 2.0 and Q >= 0.1 and total_eq >= 100.0:
-            amount = 2.0
-
-        # Enforce portfolio limits: max 8 positions, max 15% total deployed capital limit
+        # Enforce portfolio risk limits: max 8 open positions, max 15% total deployed capital limit
         can_open = portfolio.can_open_capital_aware(amount, max_deployed_pct=0.15) if hasattr(portfolio, "can_open_capital_aware") else portfolio.can_open(amount)
         if not can_open:
             return 0.0
@@ -406,18 +511,18 @@ class Strategy_S6_Moonshot_Ladder(BaseLabStrategy):
         if crossed:
             return ("SELL_PCT_LADDER", crossed, f"Profit Target +{crossed[0][0]:g}%")
 
-        # 3. DYNAMIC TRAILING STOP & BREAKEVEN PROTECTION (after +20% peak)
+        # 3. DYNAMIC TRAILING STOP & BREAKEVEN PROTECTION (R1 Trailing Distances)
         if peak_pnl >= 20.0:
             if peak_pnl < 50.0:
                 dist = 15.0
             elif peak_pnl < 100.0:
                 dist = 20.0
             elif peak_pnl < 300.0:
-                dist = 25.0
-            elif peak_pnl < 1000.0:
                 dist = 30.0
-            else:
+            elif peak_pnl < 1000.0:
                 dist = 35.0
+            else:
+                dist = 40.0
 
             breakeven_stop = 0.0
             candidate_stop = max(breakeven_stop, peak_pnl - dist)
