@@ -488,9 +488,6 @@ def create_tables():
         # S7 SHADOW ENGINE DECISIONS
         # ======================================================
         
-        # Drop the old table if it exists to forcefully migrate in local dev
-        cursor.execute("DROP TABLE IF EXISTS s7_shadow_decisions")
-        
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS s7_shadow_decisions(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
