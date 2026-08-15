@@ -142,6 +142,21 @@ def process_message(message):
         print(f"[PAPER LAB ERROR] Signal dispatch failed: {lab_e}")
 
     # ======================================================
+    # S7 LIVE SHADOW EVALUATION
+    # ======================================================
+    try:
+        from s7_shadow.live_evaluator import evaluate_and_record_shadow_decision
+        
+        # Calculate what S6 allocation would be if it wasn't rejected
+        s6_amount = 0.0
+        if coin.decision in ["BUY", "STRONG BUY"]:
+            s6_amount = get_position_size(coin, portfolio)
+            
+        evaluate_and_record_shadow_decision(coin, s6_amount, coin.decision)
+    except Exception as s7_e:
+        print(f"[S7 SHADOW ERROR] {s7_e}")
+
+    # ======================================================
     # PRINT REPORT
     # ======================================================
 

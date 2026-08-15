@@ -484,6 +484,35 @@ def create_tables():
         )
         """)
 
+        # ======================================================
+        # S7 SHADOW ENGINE DECISIONS
+        # ======================================================
+        
+        # Drop the old table if it exists to forcefully migrate in local dev
+        cursor.execute("DROP TABLE IF EXISTS s7_shadow_decisions")
+        
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS s7_shadow_decisions(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            signal_id TEXT UNIQUE,
+            symbol TEXT,
+            decision_timestamp REAL,
+            model_version TEXT NOT NULL,
+            opportunity_score REAL,
+            execution_risk_score REAL,
+            net_score REAL,
+            shadow_allocation REAL,
+            estimated_entry_impact REAL NULL,
+            estimated_exit_impact REAL NULL,
+            estimated_round_trip_cost REAL NULL,
+            s6_decision TEXT,
+            s6_allocation REAL,
+            feature_version TEXT NOT NULL,
+            feature_snapshot_json TEXT NOT NULL,
+            created_at REAL
+        )
+        """)
+
         connection.commit()
         print("[OK] Database Tables Ready")
 
