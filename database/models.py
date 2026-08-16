@@ -506,7 +506,51 @@ def create_tables():
             s6_allocation REAL,
             feature_version TEXT NOT NULL,
             feature_snapshot_json TEXT NOT NULL,
+            execution_snapshot_json TEXT,
+            t0_timestamp REAL,
+            intel_source_timestamp REAL,
+            snapshot_source_timestamp REAL,
             created_at REAL
+        )
+        """)
+
+        try:
+            cursor.execute("ALTER TABLE s7_shadow_decisions ADD COLUMN execution_snapshot_json TEXT")
+        except Exception:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE s7_shadow_decisions ADD COLUMN t0_timestamp REAL")
+        except Exception:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE s7_shadow_decisions ADD COLUMN intel_source_timestamp REAL")
+        except Exception:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE s7_shadow_decisions ADD COLUMN snapshot_source_timestamp REAL")
+        except Exception:
+            pass
+
+        # ======================================================
+        # EXECUTION ORDERS (P0 Readiness)
+        # ======================================================
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS execution_orders(
+            order_id TEXT PRIMARY KEY,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            signal_id TEXT,
+            symbol TEXT,
+            side TEXT,
+            requested_amount REAL,
+            executed_amount REAL,
+            status TEXT,
+            created_at REAL,
+            updated_at REAL,
+            error TEXT
         )
         """)
 
