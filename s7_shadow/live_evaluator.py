@@ -51,8 +51,8 @@ def evaluate_and_record_shadow_decision(coin, s6_allocation, s6_decision):
             cursor.execute('''
                 SELECT liquidity, volume, timestamp 
                 FROM snapshots 
-                WHERE signal_id = ? AND timestamp <= ?
-                ORDER BY timestamp DESC LIMIT 1
+                WHERE signal_id = ? AND CAST(timestamp AS REAL) <= ?
+                ORDER BY CAST(timestamp AS REAL) DESC LIMIT 1
             ''', (coin.signal_id, t0_timestamp))
             snap_row = cursor.fetchone()
             
