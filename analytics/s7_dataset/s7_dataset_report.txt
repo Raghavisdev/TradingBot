@@ -1,0 +1,26 @@
+==================================================
+S7 V2 HISTORICAL DATASET REPORT
+==================================================
+
+Total signals: 38
+Signals with outcomes: 20
+Signals without outcomes: 18
+Signals with intelligence at T0: 0
+Signals with snapshots at T0: 0
+Signals with complete T0 feature set: 0
+
+S6 Baseline:
+BUY: 0
+SKIP: 26
+WATCH: 12
+Bought True: 0
+Bought False: 38
+
+Outcomes:
+Profitable: 14
+Unprofitable: 6
+Rugged: 17
+Non-rugged: 3
+
+Validation:
+Duplicate Signal IDs: 0
