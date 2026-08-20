@@ -1,0 +1,55 @@
+WINNER PROFILING:
+/home/tradingbot/TradingBot/venv/lib/python3.12/site-packages/xgboost/training.py:200: UserWarning: [17:49:09] WARNING: /__w/xgboost/xgboost/src/learner.cc:794: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Generating Winner Profile...
+Saved WINNER_PROFILE_REPORT.md
+TRAINING MULTI-TARGET:
+/home/tradingbot/TradingBot/analytics/profitability_model/train_profitability_models.py:29: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df['T_log_return'] = np.log1p(ret)
+/home/tradingbot/TradingBot/venv/lib/python3.12/site-packages/xgboost/training.py:200: UserWarning: [17:49:10] WARNING: /__w/xgboost/xgboost/src/learner.cc:794: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+/home/tradingbot/TradingBot/venv/lib/python3.12/site-packages/xgboost/training.py:200: UserWarning: [17:49:10] WARNING: /__w/xgboost/xgboost/src/learner.cc:794: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+/home/tradingbot/TradingBot/venv/lib/python3.12/site-packages/xgboost/training.py:200: UserWarning: [17:49:10] WARNING: /__w/xgboost/xgboost/src/learner.cc:794: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+/home/tradingbot/TradingBot/venv/lib/python3.12/site-packages/xgboost/training.py:200: UserWarning: [17:49:10] WARNING: /__w/xgboost/xgboost/src/learner.cc:794: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+Training Multi-Target Opportunity Models...
+Training T_rugged (1m)
+  PR-AUC: 0.904
+Training T_reached_2x (1m)
+  PR-AUC: 0.451
+Training T_reached_5x (1m)
+  PR-AUC: 0.331
+Training T_reached_10x (1m)
+  PR-AUC: 0.038
+Training T_log_return (1m)
+  MAE: 2.383
+EVALUATION & RANKING:
+/home/tradingbot/TradingBot/analytics/profitability_model/train_profitability_models.py:29: PerformanceWarning: DataFrame is highly fragmented.  This is usually the result of calling `frame.insert` many times, which has poor performance.  Consider joining all columns at once using pd.concat(axis=1) instead. To get a de-fragmented frame, use `newframe = frame.copy()`
+  df['T_log_return'] = np.log1p(ret)
+Evaluating Opportunity Ranking...
+\n================ VALIDATION SET RANKING ================
+[Baseline 100%] Trades: 94 | EV/Trade: -0.53 | Rugs: 88.3% | 2x: 31.9% (Captures 100.0% of all 2x) | 10x: 1.1% (Captures 100.0% of all 10x)
+[Top 50%] Trades: 47 | EV/Trade: -0.43 | Rugs: 85.1% | 2x: 40.4% (Captures 63.3% of all 2x) | 10x: 2.1% (Captures 100.0% of all 10x)
+[Top 20%] Trades: 18 | EV/Trade: -0.11 | Rugs: 77.8% | 2x: 50.0% (Captures 30.0% of all 2x) | 10x: 5.6% (Captures 100.0% of all 10x)
+[Top 10%] Trades: 9 | EV/Trade: +0.44 | Rugs: 66.7% | 2x: 55.6% (Captures 16.7% of all 2x) | 10x: 11.1% (Captures 100.0% of all 10x)
+[Top  5%] Trades: 4 | EV/Trade: +1.00 | Rugs: 50.0% | 2x: 75.0% (Captures 10.0% of all 2x) | 10x: 25.0% (Captures 100.0% of all 10x)
+\n================ TEST SET RANKING ================
+[Baseline 100%] Trades: 95 | EV/Trade: -0.49 | Rugs: 87.4% | 2x: 32.6% (Captures 100.0% of all 2x) | 10x: 3.2% (Captures 100.0% of all 10x)
+[Top 50%] Trades: 47 | EV/Trade: -0.38 | Rugs: 87.2% | 2x: 34.0% (Captures 51.6% of all 2x) | 10x: 4.3% (Captures 66.7% of all 10x)
+[Top 20%] Trades: 19 | EV/Trade: -0.24 | Rugs: 78.9% | 2x: 47.4% (Captures 29.0% of all 2x) | 10x: 0.0% (Captures 0.0% of all 10x)
+[Top 10%] Trades: 9 | EV/Trade: -0.28 | Rugs: 77.8% | 2x: 33.3% (Captures 9.7% of all 2x) | 10x: 0.0% (Captures 0.0% of all 10x)
+[Top  5%] Trades: 4 | EV/Trade: -0.25 | Rugs: 75.0% | 2x: 25.0% (Captures 3.2% of all 2x) | 10x: 0.0% (Captures 0.0% of all 10x)
+\nFINAL VERDICT:
+ML DOES NOT YET PROVIDE VERIFIED ALPHA. Top ranked signals are not highly profitable.
