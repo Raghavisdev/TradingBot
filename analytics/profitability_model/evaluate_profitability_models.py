@@ -63,8 +63,8 @@ def main():
     registry = ModelRegistry()
     
     # S6 Baseline: final_score >= 65
-    s6_mask_val = (df['split'] == 'VALIDATION') & (df['F_signal_final_score'] >= 65)
-    s6_mask_test = (df['split'] == 'TEST') & (df['F_signal_final_score'] >= 65)
+    s6_mask_val = (df['split'] == 'VALIDATION') & (df['F_final_score'] >= 65)
+    s6_mask_test = (df['split'] == 'TEST') & (df['F_final_score'] >= 65)
     
     print("\\n--- BASELINE S6 PERFORMANCE ---")
     val_baseline = simulate_trades(df[df['split'] == 'VALIDATION'], s6_mask_val[df['split'] == 'VALIDATION'])

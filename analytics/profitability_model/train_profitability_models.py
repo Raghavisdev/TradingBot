@@ -24,7 +24,7 @@ def load_data():
 
 def get_features_for_horizon(df, horizon):
     # Base features (always available)
-    features = [c for c in df.columns if c.startswith('F_signal_')]
+    features = [c for c in df.columns if c.startswith('F_') and not ('_snap_' in c or '_intel_' in c or '_t0_' in c)]
     
     # Horizon features
     if horizon == 't0':
