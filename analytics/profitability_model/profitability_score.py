@@ -1,35 +1,31 @@
 import numpy as np
 
-def calculate_opportunity_score(p_rug, p_2x, p_5x, p_10x, expected_return):
+def calculate_expected_value(p_rug, p_2x, p_5x, p_10x, expected_log_return):
     """
-    Calculates the meta-score based on model predictions.
-    Penalizes rugs, rewards high expected return and 2x/5x/10x probabilities.
+    Calculates the empirical Expected Value.
+    Because 2x, 5x, 10x are not mutually exclusive (a 10x is also a 2x and 5x),
+    we model the marginal probability of stopping at each tier based on the ladder.
+    
+    If it reaches 10x, the cumulative ladder payout is approx 5.0 units.
+    If it reaches 5x but not 10x, the payout is approx 2.0 units.
+    If it reaches 2x but not 5x, the payout is approx 0.5 units.
+    If it rugs, the payout is -1.0 units.
+    
+    This is an observational EV formula for ranking, not a true dollar expectation.
     """
-    # 1. Base Score derived from expected return
-    # Assuming expected_return is derived from the robust regression model
-    score = expected_return * 100.0  
+    # Marginal probabilities (assuming monotonically decreasing probabilities)
+    p_just_2x = np.maximum(0, p_2x - p_5x)
+    p_just_5x = np.maximum(0, p_5x - p_10x)
+    p_10x_plus = p_10x
     
-    # 2. Rug Penalty: Exponential decay as p_rug increases
-    rug_penalty = np.exp(-5.0 * p_rug) 
-    score *= rug_penalty
+    # Simple EV formulation
+    ev = (p_just_2x * 0.5) + (p_just_5x * 2.0) + (p_10x_plus * 5.0) - (p_rug * 1.0)
     
-    # 3. Upside Bonus
-    upside = (p_2x * 2.0) + (p_5x * 5.0) + (p_10x * 10.0)
-    score += upside
+    # Blend with the robust log regressor to incorporate all the 'partial' wins
+    # Convert log return back to linear for blending
+    expected_linear_return = np.expm1(expected_log_return)
     
-    return score
-
-def ml_recommended_allocation(score, s6_allocation, max_allocation=0.5):
-    """
-    OBSERVER ONLY. Do not use in live trading.
-    Modulates the S6 allocation based on the ML opportunity score.
-    """
-    # If score is highly negative/low, reject
-    if score <= 0.0:
-        return 0.0
-        
-    # Scale up to max allocation based on score (e.g. score of 5.0 gets full boost)
-    multiplier = np.clip(score / 5.0, 0.0, 1.5)
+    # Final opportunity score is a 50/50 blend of classifier EV and regressor EV
+    composite_score = (ev * 0.5) + (expected_linear_return * 0.5)
     
-    rec = s6_allocation * multiplier
-    return np.clip(rec, 0.0, max_allocation)
+    return composite_score
