@@ -117,11 +117,39 @@ class Position:
         self.unrealized_profit = 0.0
 
         # ==========================================
+        # EXECUTION ACCOUNTING
+        # ==========================================
+
+        # Actual execution costs accumulated over the
+        # complete round trip.
+        self.entry_fees = 0.0
+        self.exit_fees = 0.0
+
+        # Execution slippage measured separately from
+        # market-price P&L and price impact.
+        self.entry_slippage = 0.0
+        self.exit_slippage = 0.0
+
+        # Actual proceeds received from confirmed sells.
+        self.realized_proceeds = 0.0
+
+        # Actual cost allocated to the portions sold.
+        self.realized_cost = 0.0
+
+        # Net realized result after execution costs.
+        self.net_realized_pnl = 0.0
+
+        # ==========================================
         # POSITION
         # ==========================================
 
         self.remaining_percent = 100
         self.sold_percent = 0
+
+        # Partial exit actions already executed for this position.
+        # Prevents the same AI decision from executing repeatedly
+        # on consecutive market-update cycles.
+        self.executed_exit_actions = set()
 
         self.status = "OPEN"
 

@@ -1,3 +1,5 @@
+import os
+
 from trading.position import Position
 
 
@@ -9,9 +11,11 @@ class Portfolio:
 
         self.closed_positions = []
 
-        self.initial_balance = 100.0
+        self.initial_balance = float(
+            os.getenv("PAPER_INITIAL_BALANCE", "100.0")
+        )
 
-        self.cash = 100.0
+        self.cash = self.initial_balance
 
         self.total_profit = 0.0
 
@@ -39,7 +43,18 @@ class Portfolio:
 
             self.closed_positions.append(position)
 
-            self.total_profit += position.pnl_dollars
+            # Portfolio profit must use the net realized result
+            # after execution costs when available.
+            net_profit = float(
+                getattr(
+                    position,
+                    "net_realized_pnl",
+                    position.pnl_dollars,
+                )
+                or 0.0
+            )
+
+            self.total_profit += net_profit
 
     # ==========================================
     # OPEN POSITIONS

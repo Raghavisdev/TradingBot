@@ -27,3 +27,30 @@ training_dataset.csv
 .idea/
 .DS_Store
 Thumbs.db
+
+# Runtime / local databases
+*.db
+*.sqlite
+*.sqlite3
+*.session-journal
+
+# Backups / temporary copies
+*.bak
+*.bak_*
+*.backup
+*.before_*
+backups/
+
+# Local generated artifacts
+trajectory.txt
+
+# Generated datasets / reports
+analytics/s7_dataset/*.csv
+analytics/s7_dataset/*.json
+analytics/s7_dataset/*.txt
+
+# Generated model artifacts
+analytics/s7_models/*.csv
+analytics/s7_models/*.txt
+analytics/s7_models/*.ubj
+

@@ -213,19 +213,110 @@ class TradeManager:
             # ------------------------------------------
 
             if action == "SELL_ALL":
-                self.trader.sell_all(position, exit_reason=reason)
 
-            elif action == "SELL_70":
-                self.trader.partial_sell(position, 70, exit_reason=reason)
+                if position.remaining_percent > 0:
+                    self.trader.sell_all(
+                        position,
+                        exit_reason=reason,
+                    )
 
-            elif action == "SELL_40":
-                self.trader.partial_sell(position, 40, exit_reason=reason)
+            elif action in {
+                "SELL_70",
+                "SELL_40",
+                "SELL_20",
+                "SELL_15",
+            }:
 
-            elif action == "SELL_20":
-                self.trader.partial_sell(position, 20, exit_reason=reason)
+                # Prevent the same AI exit action from being
+                # executed repeatedly on consecutive update cycles.
+                executed_actions = getattr(
+                    position,
+                    "executed_exit_actions",
+                    set(),
+                )
 
-            elif action == "SELL_15":
-                self.trader.partial_sell(position, 15, exit_reason=reason)
+                if action in executed_actions:
+
+                    print(
+                        "EXIT ACTION SKIPPED:",
+                        action,
+                        "already executed for this position.",
+                    )
+
+                elif position.remaining_percent <= 0:
+
+                    print(
+                        "EXIT ACTION SKIPPED:",
+                        action,
+                        "position already fully sold.",
+                    )
+
+                else:
+
+                    percent = {
+                        "SELL_70": 70,
+                        "SELL_40": 40,
+                        "SELL_20": 20,
+                        "SELL_15": 15,
+                    }[action]
+
+                    previous_remaining = (
+                        position.remaining_percent
+                    )
+
+                    try:
+
+                        result = self.trader.partial_sell(
+                            position,
+                            percent,
+                            exit_reason=reason,
+                        )
+
+                        # Only mark the action as executed if
+                        # the sell operation reports success.
+                        if result is not False:
+
+                            executed_actions.add(action)
+
+                            position.executed_exit_actions = (
+                                executed_actions
+                            )
+
+                            print(
+                                "EXIT ACTION EXECUTED:",
+                                action,
+                                "|",
+                                f"Remaining: "
+                                f"{position.remaining_percent}%",
+                            )
+
+                        else:
+
+                            print(
+                                "EXIT ACTION FAILED:",
+                                action,
+                                "| Action remains retryable.",
+                            )
+
+                    except Exception as exc:
+
+                        print(
+                            "EXIT ACTION ERROR:",
+                            action,
+                            "|",
+                            exc,
+                        )
+
+                        # Do not mark failed actions as executed.
+                        position.remaining_percent = max(
+                            0,
+                            position.remaining_percent,
+                        )
+
+                        print(
+                            "Previous remaining:",
+                            previous_remaining,
+                        )
 
     # ==================================================
     # RUN FOREVER
@@ -246,4 +337,4 @@ class TradeManager:
                 print("Trade Manager Error:", e)
 
             time.sleep(1)
-
+

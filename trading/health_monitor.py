@@ -2,7 +2,6 @@ import time
 import threading
 import logging
 import os
-
 import sys
 
 try:
@@ -14,10 +13,15 @@ except ImportError:
 from config import HEALTH_LOG_INTERVAL, LOG_LEVEL
 from database.database import database
 
+
 logger = logging.getLogger("HealthMonitor")
 
 
 def get_memory_usage_mb():
+    """
+    Return current process memory usage in MB.
+    """
+
     if HAS_PSUTIL:
         try:
             process = psutil.Process(os.getpid())
@@ -25,7 +29,7 @@ def get_memory_usage_mb():
         except Exception:
             pass
 
-    # Windows OS native API fallback (ctypes)
+    # Windows fallback
     if sys.platform == "win32":
         try:
             import ctypes
@@ -47,16 +51,25 @@ def get_memory_usage_mb():
 
             counters = PROCESS_MEMORY_COUNTERS()
             counters.cb = ctypes.sizeof(PROCESS_MEMORY_COUNTERS)
+
             handle = ctypes.windll.kernel32.GetCurrentProcess()
-            if ctypes.windll.psapi.GetProcessMemoryInfo(handle, ctypes.byref(counters), counters.cb):
+
+            if ctypes.windll.psapi.GetProcessMemoryInfo(
+                handle,
+                ctypes.byref(counters),
+                counters.cb
+            ):
                 return counters.WorkingSetSize / (1024 * 1024)
+
         except Exception:
             pass
 
     # POSIX fallback
     try:
         import resource
-        return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024.0
+        return resource.getrusage(
+            resource.RUSAGE_SELF
+        ).ru_maxrss / 1024.0
     except Exception:
         pass
 
@@ -65,48 +78,103 @@ def get_memory_usage_mb():
 
 class HealthMonitor:
 
-    def __init__(self, tracker_manager, interval=HEALTH_LOG_INTERVAL):
+    def __init__(
+        self,
+        tracker_manager,
+        interval=HEALTH_LOG_INTERVAL
+    ):
         self.tracker_manager = tracker_manager
         self.interval = interval
         self.running = False
         self.thread = None
         self.start_time = time.time()
 
+    # =====================================================
+    # START
+    # =====================================================
+
     def start(self):
+
         if self.running:
             return
+
         self.running = True
         self.start_time = time.time()
-        self.thread = threading.Thread(target=self.run, daemon=True)
+
+        self.thread = threading.Thread(
+            target=self.run,
+            daemon=True,
+            name="HealthMonitor"
+        )
+
         self.thread.start()
-        logger.info("Health Monitor daemon started (logging status every %ds)", self.interval)
+
+        logger.info(
+            "Health Monitor daemon started "
+            "(logging status every %ds)",
+            self.interval
+        )
+
+    # =====================================================
+    # STOP
+    # =====================================================
 
     def stop(self):
+
         self.running = False
 
+        logger.info("Health Monitor daemon stopped.")
+
+    # =====================================================
+    # STATUS
+    # =====================================================
+
     def log_status(self):
+
         uptime_sec = time.time() - self.start_time
         uptime_hours = uptime_sec / 3600.0
 
+        # IMPORTANT:
+        # Do NOT call get_snapshots(), get_signals(), or get_outcomes()
+        # here. Those methods load entire tables into Python memory.
+        #
+        # get_counts() performs SQL COUNT(*) directly in SQLite.
         try:
-            signals = database.get_signals()
-            snapshots = database.get_snapshots()
-            outcomes = database.get_outcomes()
-            signal_count = len(signals)
-            snapshot_count = len(snapshots)
-            outcome_count = len(outcomes)
-        except Exception as e:
-            logger.warning("Error fetching database stats for health log: %s", e)
-            signal_count = snapshot_count = outcome_count = 0
 
-        active_trackers = len(getattr(self.tracker_manager, "trackers", {}))
+            signal_count, snapshot_count, outcome_count = (
+                database.get_counts()
+            )
+
+        except Exception as e:
+
+            logger.warning(
+                "Error fetching database counts for health log: %s",
+                e
+            )
+
+            signal_count = 0
+            snapshot_count = 0
+            outcome_count = 0
+
+        active_trackers = len(
+            getattr(
+                self.tracker_manager,
+                "trackers",
+                {}
+            )
+        )
+
         mem_mb = get_memory_usage_mb()
 
         status_text = (
-            "\n" + "=" * 45 + "\n"
+            "\n"
+            + "=" * 45
+            + "\n"
             "RUNTIME HEALTH STATUS\n"
-            + "=" * 45 + f"\n"
-            f"  Uptime              : {uptime_hours:.2f}h ({int(uptime_sec)}s)\n"
+            + "=" * 45
+            + "\n"
+            f"  Uptime              : "
+            f"{uptime_hours:.2f}h ({int(uptime_sec)}s)\n"
             f"  Total Signals       : {signal_count}\n"
             f"  Active Trackers     : {active_trackers}\n"
             f"  Total Snapshots     : {snapshot_count}\n"
@@ -115,16 +183,33 @@ class HealthMonitor:
             f"  SQLite Journal Mode : WAL\n"
             + "=" * 45
         )
+
         logger.info(status_text)
 
+    # =====================================================
+    # LOOP
+    # =====================================================
+
     def run(self):
+
         while self.running:
+
             time.sleep(self.interval)
-            if self.running:
-                try:
-                    self.log_status()
-                except Exception as e:
-                    logger.error("Error during health status log: %s", e)
+
+            if not self.running:
+                break
+
+            try:
+
+                self.log_status()
+
+            except Exception as e:
+
+                logger.error(
+                    "Error during health status log: %s",
+                    e
+                )
 
 
+# Global reference used by main.py
 health_monitor = None
