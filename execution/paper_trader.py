@@ -29,6 +29,55 @@ class PaperTrader:
     def __init__(self, portfolio):
         self.portfolio = portfolio
 
+    def _get_execution_cost(self, amount_usd, coin_contract, side="BUY", tokens_ui=0.0):
+        default_cost = amount_usd * PAPER_EXECUTION_FRICTION_RATE
+        network_fee = 0.0
+        cost_mode = "MODELED_COST"
+
+        if not coin_contract:
+            return default_cost, network_fee, cost_mode
+
+        import os
+        if not os.getenv("PAPER_USE_LIVE_QUOTES", "True").lower() in ("true", "1", "yes"):
+            return default_cost, network_fee, cost_mode
+
+        try:
+            from execution.live_executor import LiveExecutor
+            wallet_pubkey = os.getenv("WALLET_PUBLIC_KEY", "8BseCGzEktUvUpxF12R1X7XqH4rA5k3z4C3tUoB7QzYQ")
+            executor = LiveExecutor()
+
+            if side == "BUY":
+                res = executor.prepare_buy(
+                    token_mint=coin_contract,
+                    amount_usd=amount_usd,
+                    liquidity_usd=100000.0,
+                    wallet_public_key=wallet_pubkey,
+                    open_positions=1
+                )
+            else:
+                if tokens_ui <= 0:
+                    return default_cost, network_fee, cost_mode
+                decimals = executor.get_token_decimals(coin_contract)
+                raw_tokens = int(tokens_ui * (10 ** decimals))
+                res = executor.prepare_sell(
+                    token_mint=coin_contract,
+                    token_amount=raw_tokens,
+                    liquidity_usd=100000.0,
+                    wallet_public_key=wallet_pubkey,
+                    open_positions=1
+                )
+
+            if res.quote and res.price_impact is not None:
+                cost_mode = "OBSERVED_QUOTE_COST"
+                pi = res.price_impact / 100.0
+                impact_dollars = amount_usd * pi
+                network_fee = 0.02
+                return impact_dollars, network_fee, cost_mode
+        except Exception as e:
+            logger.warning(f"[PAPER] Failed to get OBSERVED {side} quote: {e}")
+
+        return default_cost, network_fee, cost_mode
+
     # =========================================================
     # BUY
     # =========================================================
@@ -44,9 +93,10 @@ class PaperTrader:
             )
             return None
 
-        entry_friction = (
-            amount *
-            PAPER_EXECUTION_FRICTION_RATE
+        entry_friction, network_fee, cost_mode = self._get_execution_cost(
+            amount,
+            getattr(coin, "contract", None),
+            side="BUY"
         )
 
         total_cash_required = (
@@ -129,6 +179,9 @@ class PaperTrader:
         position.realized_cost = 0.0
         position.realized_profit = 0.0
         position.net_realized_pnl = 0.0
+        position.network_fee = network_fee
+        position.commission = 0.0
+        position.cost_mode = cost_mode
 
         position.initialize()
 
@@ -159,6 +212,7 @@ class PaperTrader:
         print("Investment        : $", round(amount, 6))
         print("Entry friction    : $", round(entry_friction, 6))
         print("Total cash used   : $", round(total_cash_required, 6))
+        print("Cost Mode         :", cost_mode)
         print("Entry Price       :", position.entry_price)
         print("Cash Left         : $", round(self.portfolio.cash, 6))
         print("==============================")
@@ -205,9 +259,11 @@ class PaperTrader:
             100.0
         )
 
-        exit_friction = (
-            gross_proceeds *
-            PAPER_EXECUTION_FRICTION_RATE
+        exit_friction, network_fee, cost_mode = self._get_execution_cost(
+            gross_proceeds,
+            getattr(position, "contract", None),
+            side="SELL",
+            tokens_ui=position.tokens * percent / 100.0
         )
 
         net_proceeds = (
@@ -271,8 +327,11 @@ class PaperTrader:
                 proceeds=gross_proceeds,
                 partial_pnl=net_slice_pnl,
                 exit_reason=reason,
-                fees=0.0,
+                fees=network_fee,
                 slippage=exit_friction,
+                cost_mode=cost_mode,
+                network_fee=network_fee,
+                commission=0.0
             ):
                 logger.error(
                     "[PAPER PARTIAL SELL] "
@@ -297,6 +356,7 @@ class PaperTrader:
         print("Gross proceeds    : $", round(gross_proceeds, 6))
         print("Exit friction     : $", round(exit_friction, 6))
         print("Net proceeds      : $", round(net_proceeds, 6))
+        print("Cost Mode         :", cost_mode)
         print("Net slice P&L     : $", round(net_slice_pnl, 6))
         print("Remaining         :", position.remaining_percent, "%")
         print("Cash Balance      : $", round(self.portfolio.cash, 6))
@@ -343,9 +403,11 @@ class PaperTrader:
             100.0
         )
 
-        exit_friction = (
-            gross_proceeds *
-            PAPER_EXECUTION_FRICTION_RATE
+        exit_friction, network_fee, cost_mode = self._get_execution_cost(
+            gross_proceeds,
+            getattr(position, "contract", None),
+            side="SELL",
+            tokens_ui=position.tokens * remaining_percent / 100.0
         )
 
         net_proceeds = (
@@ -395,6 +457,11 @@ class PaperTrader:
             if not database.close_paper_trade(
                 position,
                 exit_reason=reason,
+                fees=network_fee,
+                slippage=exit_friction,
+                cost_mode=cost_mode,
+                network_fee=network_fee,
+                commission=0.0
             ):
                 logger.error(
                     "[PAPER SELL] "
@@ -420,6 +487,7 @@ class PaperTrader:
         print("Gross proceeds    : $", round(gross_proceeds, 6))
         print("Exit friction     : $", round(exit_friction, 6))
         print("Net proceeds      : $", round(net_proceeds, 6))
+        print("Cost Mode         :", cost_mode)
         print("Net trade P&L     : $", round(position.net_realized_pnl, 6))
         print("Profit (%)        :", round(position.pnl_percent, 4))
         print("Held (mins)       :", round(position.holding_time, 2))

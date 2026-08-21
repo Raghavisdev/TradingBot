@@ -256,6 +256,17 @@ def create_tables():
 
         """)
 
+        new_paper_trade_cols = [
+            "ALTER TABLE paper_trades ADD COLUMN cost_mode TEXT DEFAULT 'MODELED_COST'",
+            "ALTER TABLE paper_trades ADD COLUMN network_fee REAL DEFAULT 0.0",
+            "ALTER TABLE paper_trades ADD COLUMN commission REAL DEFAULT 0.0"
+        ]
+        for stmt in new_paper_trade_cols:
+            try:
+                cursor.execute(stmt)
+            except Exception:
+                pass
+
         # ======================================================
         # PAPER PARTIAL SELLS
         # Append-only — one row per partial exit event.
@@ -293,6 +304,17 @@ def create_tables():
         )
 
         """)
+
+        new_paper_partial_cols = [
+            "ALTER TABLE paper_partial_sells ADD COLUMN cost_mode TEXT DEFAULT 'MODELED_COST'",
+            "ALTER TABLE paper_partial_sells ADD COLUMN network_fee REAL DEFAULT 0.0",
+            "ALTER TABLE paper_partial_sells ADD COLUMN commission REAL DEFAULT 0.0"
+        ]
+        for stmt in new_paper_partial_cols:
+            try:
+                cursor.execute(stmt)
+            except Exception:
+                pass
 
         # ======================================================
         # INTELLIGENCE (AI V2 — Passive Collection Layer)

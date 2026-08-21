@@ -90,9 +90,12 @@ class TradeLogger:
                     mae,
                     fees,
                     slippage,
+                    cost_mode,
+                    network_fee,
+                    commission,
                     updated_at
                 )
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     getattr(
@@ -196,6 +199,24 @@ class TradeLogger:
                     getattr(
                         position,
                         "entry_slippage",
+                        0.0,
+                    ),
+
+                    getattr(
+                        position,
+                        "cost_mode",
+                        "MODELED_COST",
+                    ),
+
+                    getattr(
+                        position,
+                        "network_fee",
+                        0.0,
+                    ),
+
+                    getattr(
+                        position,
+                        "commission",
                         0.0,
                     ),
 
@@ -317,6 +338,9 @@ class TradeLogger:
         exit_reason,
         fees=0.0,
         slippage=0.0,
+        cost_mode="MODELED_COST",
+        network_fee=0.0,
+        commission=0.0,
     ) -> bool:
 
         trade_id = getattr(
@@ -410,9 +434,12 @@ class TradeLogger:
                     proceeds,
                     partial_pnl,
                     partial_pct,
-                    exit_reason
+                    exit_reason,
+                    cost_mode,
+                    network_fee,
+                    commission
                 )
-                VALUES (?,?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     trade_id,
@@ -448,6 +475,12 @@ class TradeLogger:
                     partial_pct,
 
                     exit_reason,
+                    
+                    cost_mode,
+                    
+                    float(network_fee),
+                    
+                    float(commission),
                 ),
             )
 
