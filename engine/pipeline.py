@@ -1,5 +1,5 @@
 import threading
-
+import os
 from parsers.signal_parser import parse_signal
 
 from collectors.manager import collect_all
@@ -10,8 +10,10 @@ from ai_engine.decision import make_decision
 from ai_engine.position_sizer import get_position_size
 
 from execution.paper_trader import PaperTrader
+from execution.live_trader import LiveTrader
 
 from trading.portfolio import Portfolio
+from trading.live_portfolio import LivePortfolio
 from trading.trade_manager import TradeManager
 from trading.tracker_manager import tracker_manager
 
@@ -24,13 +26,21 @@ from intelligence.runner import intelligence_runner
 # GLOBAL OBJECTS
 # ==========================================================
 
-portfolio = Portfolio()
+LIVE_TRADING = os.getenv("LIVE_TRADING", "False").lower() in ("true", "1", "yes")
 
-paper_trader = PaperTrader(portfolio)
+if LIVE_TRADING:
+    print("🚀 LIVE TRADING IS ENABLED")
+    WALLET_PUBKEY = os.getenv("WALLET_PUBLIC_KEY", "MOCK_WALLET_PUBLIC_KEY_FOR_TESTING")
+    portfolio = LivePortfolio(WALLET_PUBKEY)
+    trader = LiveTrader(portfolio)
+else:
+    print("🧪 PAPER TRADING IS ENABLED")
+    portfolio = Portfolio()
+    trader = PaperTrader(portfolio)
 
 trade_manager = TradeManager(
     portfolio,
-    paper_trader
+    trader
 )
 
 
@@ -41,7 +51,7 @@ trade_manager = TradeManager(
 # into the portfolio and immediately managed by Exit AI.
 # ==========================================================
 
-trade_manager.recover_open_positions(strategy_id="default")
+trade_manager.recover_open_positions(strategy_id="S6_Moonshot_Ladder")
 
 # ==========================================================
 # START TRADE MANAGER
@@ -231,7 +241,7 @@ def process_message(message):
 
     print("\n✅ BUY APPROVED")
 
-    position = paper_trader.buy(
+    position = trader.buy(
         coin,
         amount
     )

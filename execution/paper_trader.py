@@ -124,6 +124,9 @@ class PaperTrader:
             "signal_id",
             None,
         )
+        
+        position.strategy_id = "S6_Moonshot_Ladder"
+        position.strategy_version = "1.2"
 
         position.entry_price = float(coin.price)
         position.entry_market_cap = float(
