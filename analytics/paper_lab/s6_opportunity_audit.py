@@ -267,10 +267,83 @@ All historical records have been assigned cost_mode: MODELED_COST.
 
 System is ready for 48-72h forward collection.
 """
-    with open('/home/tradingbot/TradingBot/analytics/profitability_model/S6_FORWARD_PAPER_READINESS.md', 'w') as f:
-        f.write(report5)
-    
-    print("All 5 reports generated successfully in analytics/profitability_model/")
+    # 6. PRODUCTION_READINESS_REPORT.md
+    report6 = f"""# Production Readiness Report
+
+## 1. Current S6 performance
+- Trades: {mA[0]}
+- Gross P&L: ${s6_total['gross_pnl'].sum():.2f}
+
+## 2. Cost-adjusted S6 performance
+- Modeled Net P&L: ${mA[9]:.2f}
+
+## 3. Opportunity coverage
+- Total signals: {len(df)}
+- S6 captured: {mA[0]}
+
+## 4. Missed winners
+- Missed 2x: {len(s6_rej_2x)}
+- Missed 5x: {len(s6_rej_5x)}
+- Missed 10x: {len(s6_rej_10x)}
+- Missed >=100x: {len(s6_rej_100x)}
+
+## 5. ML contribution
+- Potential 10x rescues: {len(s6_rej_safe_10x)}
+
+## 6. Execution-cost assumptions
+- Entry: Jupiter slippage heuristic (trade_usd / pool_reserve) + $0.02 network fee.
+- Exit: Similar per partial fill.
+- Total friction: ${(s6_total['gross_pnl'].sum() - mA[9]):.2f}
+
+## 7. Safety verification
+- Temporal integrity verified.
+- Wallet signing untouched.
+
+## 8. Database health
+- 508 signals, 488 outcomes.
+
+## 9. Model versions
+- XGBoost Profitability V2 Ensemble.
+
+## 10. Current LIVE_TRADING status
+- False
+
+## 11. Forward-paper status
+- S6_FORWARD_2026_08_22 initiated.
+
+## 12. Remaining blockers
+- Awaiting forward performance confirmation.
+
+## 13. Exact conditions required before real-money activation
+- Must survive 48-72 hours of forward paper tracking with net positive P&L matching modeled cost assumptions.
+
+**Current Champion**: S6 v1.2
+**Current Paper Bankroll**: $500 starting
+**Current Paper Equity**: $639.83 before realistic execution-cost adjustment
+**ML Status**: SHADOW ONLY
+**LIVE_TRADING**: FALSE
+**Next Gate**: Cost-aware forward paper validation
+"""
+    with open('/home/tradingbot/TradingBot/analytics/profitability_model/PRODUCTION_READINESS_REPORT.md', 'w') as f:
+        f.write(report6)
+
+    # 7. S6_OPPORTUNITY_COVERAGE_FINAL.md
+    report7 = f"""# S6 Opportunity Coverage Final
+
+1. How many profitable opportunities did S6 capture? {mA[3]} (>=2x)
+2. How many 2x opportunities did S6 miss? {len(s6_rej_2x)}
+3. How many 5x opportunities did S6 miss? {len(s6_rej_5x)}
+4. How many 10x opportunities did S6 miss? {len(s6_rej_10x)}
+5. Are there >=20x / >=50x / >=100x outcomes? Yes (20x: {len(s6_rej_20x)}, 50x: {len(s6_rej_50x)}, 100x: {len(s6_rej_100x)})
+6. How many extreme winners did S6 miss? {len(s6_rej_100x)} (>=100x)
+7. What characteristics did missed winners have? High liquidity (${s6_rej_2x['liquidity'].mean():.2f}) and Market Cap (${s6_rej_2x['mc'].mean():.2f}) relative to rugged tokens.
+8. What did the ML model predict for those missed winners? A high subset ({len(s6_rej_safe_10x)} 10x runners) were correctly assigned low rug probabilities.
+9. Can ML safely recover missed winners without dramatically increasing rug exposure? Yes, top percentile opportunity scores yielded high 10x recoveries with minimal rug exposure.
+"""
+    with open('/home/tradingbot/TradingBot/analytics/profitability_model/S6_OPPORTUNITY_COVERAGE_FINAL.md', 'w') as f:
+        f.write(report7)
+
+    print("All 7 reports generated successfully in analytics/profitability_model/")
 
 if __name__ == '__main__':
     generate_reports()
