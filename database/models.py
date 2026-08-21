@@ -510,6 +510,16 @@ def create_tables():
             t0_timestamp REAL,
             intel_source_timestamp REAL,
             snapshot_source_timestamp REAL,
+            dataset_version TEXT,
+            p_rug REAL,
+            p_2x REAL,
+            p_5x REAL,
+            p_10x REAL,
+            expected_return REAL,
+            rank_percentile REAL,
+            confidence REAL,
+            recommendation TEXT,
+            ml_shadow_allocation REAL,
             created_at REAL
         )
         """)
@@ -534,6 +544,18 @@ def create_tables():
         except Exception:
             pass
 
+        # ML Canonical Additions
+        ml_cols = [
+            "dataset_version TEXT", "p_rug REAL", "p_2x REAL", "p_5x REAL", "p_10x REAL",
+            "expected_return REAL", "rank_percentile REAL", "confidence REAL",
+            "recommendation TEXT", "ml_shadow_allocation REAL"
+        ]
+        for col_def in ml_cols:
+            try:
+                cursor.execute(f"ALTER TABLE s7_shadow_decisions ADD COLUMN {col_def}")
+            except Exception:
+                pass
+
         # ======================================================
         # EXECUTION ORDERS (P0 Readiness)
         # ======================================================
@@ -553,6 +575,21 @@ def create_tables():
             error TEXT
         )
         """)
+        
+        try:
+            cursor.execute("ALTER TABLE execution_orders ADD COLUMN transaction_signature TEXT")
+        except Exception:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE execution_orders ADD COLUMN confirmation_status TEXT")
+        except Exception:
+            pass
+            
+        try:
+            cursor.execute("ALTER TABLE execution_orders ADD COLUMN confirmed_slot INTEGER")
+        except Exception:
+            pass
 
         connection.commit()
         print("[OK] Database Tables Ready")
