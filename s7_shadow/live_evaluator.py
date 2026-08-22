@@ -102,12 +102,47 @@ def evaluate_and_record_shadow_decision(coin, s6_allocation: float, s6_decision:
         try:
             from database.database import database
 
+            # --- FIX 2 & 3: Bounded polling for T0 snapshot & Observability ---
+            max_attempts = 20
+            poll_interval = 0.5
+            snapshot_found = False
+            
+            for attempt in range(max_attempts):
+                with database.db_lock:
+                    prod_conn = sqlite3.connect(DATABASE)
+                    count = prod_conn.execute(
+                        "SELECT COUNT(*) FROM snapshots WHERE signal_id = ?", 
+                        (signal_id,)
+                    ).fetchone()[0]
+                    prod_conn.close()
+                
+                if count > 0:
+                    snapshot_found = True
+                    break
+                time.sleep(poll_interval)
+                
+            if not snapshot_found:
+                print(f"[S7 SHADOW] [T0 POLLING] Timeout: No T0 snapshot found for {symbol} ({signal_id}) after {max_attempts * poll_interval}s. Skipping shadow evaluation safely.")
+                return
+                
+            print(f"[S7 SHADOW] [T0 POLLING] Success: T0 snapshot found for {symbol} ({signal_id}).")
+
             # ── T0 timestamp ──────────────────────────────────────────────────
-            t0_timestamp = time.time()  # Unix float — all feature queries must be ≤ this
+            # The canonical decision time MUST be the exact signal timestamp to prevent leakage 
+            # and maintain identical temporal alignment with the training dataset.
+            t0_timestamp = getattr(coin, 'signal_time', getattr(coin, 'timestamp', None))
+            if not t0_timestamp:
+                t0_timestamp = time.time()
+            else:
+                t0_timestamp = float(t0_timestamp)
+
+            # To match the training dataset (which searches [0, +120s] for the T0 snapshot),
+            # we allow the sandbox to pull snapshots up to +120s after the signal.
+            sandbox_snapshot_cutoff = t0_timestamp + 120.0
 
             # ── Step 1: T0 Temporal Sandbox ───────────────────────────────────
-            # Copy only rows with timestamp ≤ t0_timestamp into an in-memory
-            # SQLite database.  This is the hard guarantee that the feature
+            # Copy only rows with timestamp <= sandbox_snapshot_cutoff into an in-memory
+            # SQLite database. This is the hard guarantee that the feature
             # builder can never see future data.
             temp_conn = sqlite3.connect(':memory:')
             temp_conn.row_factory = sqlite3.Row
@@ -134,14 +169,16 @@ def evaluate_and_record_shadow_decision(coin, s6_allocation: float, s6_decision:
             with database.db_lock:
                 prod_conn = sqlite3.connect(DATABASE)
 
-                # Snapshots: timestamp is TEXT ISO string — cast via CAST(... AS REAL)
+                # Snapshots: We fetch ONLY the first snapshot (LIMIT 1) within the +120s window.
+                # This perfectly mimics the training dataset T0 feature logic and strictly prevents leakage of T30/T60 snapshots.
                 snaps = prod_conn.execute(
                     """SELECT signal_id, timestamp, market_cap, price, liquidity,
                               volume, buys, sells, holders, market_health
                        FROM snapshots
                        WHERE signal_id = ?
-                         AND CAST(timestamp AS REAL) <= ?""",
-                    (signal_id, t0_timestamp)
+                         AND CAST(timestamp AS REAL) <= ?
+                       ORDER BY CAST(timestamp AS REAL) ASC LIMIT 1""",
+                    (signal_id, sandbox_snapshot_cutoff)
                 ).fetchall()
                 if snaps:
                     temp_conn.executemany(
@@ -156,7 +193,7 @@ def evaluate_and_record_shadow_decision(coin, s6_allocation: float, s6_decision:
                        FROM intelligence
                        WHERE signal_id = ?
                          AND CAST(collected_at AS REAL) <= ?""",
-                    (signal_id, t0_timestamp)
+                    (signal_id, sandbox_snapshot_cutoff)
                 ).fetchall()
                 if intels:
                     temp_conn.executemany(

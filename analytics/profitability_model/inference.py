@@ -8,11 +8,11 @@ class ShadowInference:
         self.horizon = horizon
         self.registry = ModelRegistry()
         try:
-            self.model_rug, self.meta_rug = self.registry.get_best_model(horizon, 'T_rugged')
-            self.model_2x, _ = self.registry.get_best_model(horizon, 'T_reached_2x')
-            self.model_5x, _ = self.registry.get_best_model(horizon, 'T_reached_5x')
-            self.model_10x, _ = self.registry.get_best_model(horizon, 'T_reached_10x')
-            self.model_ret, _ = self.registry.get_best_model(horizon, 'T_log_return', metric='mae')
+            self.model_rug, self.meta_rug = self.registry.get_production_model(horizon, 'T_rugged')
+            self.model_2x, _ = self.registry.get_production_model(horizon, 'T_reached_2x')
+            self.model_5x, _ = self.registry.get_production_model(horizon, 'T_reached_5x')
+            self.model_10x, _ = self.registry.get_production_model(horizon, 'T_reached_10x')
+            self.model_ret, _ = self.registry.get_production_model(horizon, 'T_log_return')
             self.features = self.meta_rug['features']
         except Exception as e:
             self.ready = False

@@ -145,11 +145,11 @@ def process_message(message):
     # PAPER LAB MULTI-STRATEGY EVALUATION (Phase 3 Observer)
     # Failsafe non-blocking wrapper for S1-S5
     # ======================================================
-    try:
-        from analytics.paper_lab.lab_engine import get_paper_lab_engine
-        get_paper_lab_engine().on_new_signal(coin)
-    except Exception as lab_e:
-        print(f"[PAPER LAB ERROR] Signal dispatch failed: {lab_e}")
+    # try:
+    #     from analytics.paper_lab.lab_engine import get_paper_lab_engine
+    #     get_paper_lab_engine().on_new_signal(coin)
+    # except Exception as lab_e:
+    #     print(f"[PAPER LAB ERROR] Signal dispatch failed: {lab_e}")
 
     # ======================================================
     # S7 LIVE SHADOW EVALUATION

@@ -55,3 +55,33 @@ class ModelRegistry:
             
         best = sorted(candidates, key=lambda x: x.get("validation_metrics", {}).get(metric, -999.0), reverse=True)[0]
         return joblib.load(os.path.join(self.registry_dir, best["model_filename"])), best
+        
+    def get_production_model(self, horizon, target):
+        """Loads the most recently promoted production model, ignoring candidates."""
+        candidates = [r for r in self.records if r.get("horizon") == horizon and r.get("target") == target and r.get("is_production") == True]
+        if not candidates:
+            # Fallback to get_best_model if no explicit production model exists yet (for backward compatibility)
+            return self.get_best_model(horizon, target)
+            
+        # Sort by created_at descending
+        best = sorted(candidates, key=lambda x: x.get("created_at", ""), reverse=True)[0]
+        return joblib.load(os.path.join(self.registry_dir, best["model_filename"])), best
+        
+    def promote_to_production(self, model_id):
+        """Marks a candidate model as the active production model."""
+        for r in self.records:
+            if r["model_id"] == model_id:
+                r["is_production"] = True
+            elif r.get("horizon") == r.get("horizon") and r.get("target") == r.get("target"):
+                # Demote others with same horizon/target
+                pass # Actually, just keeping the newest one with is_production=True is enough, but we can explicitly set to False
+        
+        # Proper demotion
+        target_r = next((r for r in self.records if r["model_id"] == model_id), None)
+        if target_r:
+            for r in self.records:
+                if r["horizon"] == target_r["horizon"] and r["target"] == target_r["target"]:
+                    r["is_production"] = (r["model_id"] == model_id)
+            self._save_registry()
+            return True
+        return False
