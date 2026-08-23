@@ -130,11 +130,12 @@ def evaluate_and_record_shadow_decision(coin, s6_allocation: float, s6_decision:
             # ── T0 timestamp ──────────────────────────────────────────────────
             # The canonical decision time MUST be the exact signal timestamp to prevent leakage 
             # and maintain identical temporal alignment with the training dataset.
+            from analytics.profitability_model.feature_builder import parse_ts
             t0_timestamp = getattr(coin, 'signal_time', getattr(coin, 'timestamp', None))
             if not t0_timestamp:
                 t0_timestamp = time.time()
             else:
-                t0_timestamp = float(t0_timestamp)
+                t0_timestamp = parse_ts(t0_timestamp)
 
             # To match the training dataset (which searches [0, +120s] for the T0 snapshot),
             # we allow the sandbox to pull snapshots up to +120s after the signal.
@@ -204,17 +205,19 @@ def evaluate_and_record_shadow_decision(coin, s6_allocation: float, s6_decision:
                 prod_conn.close()
 
             # Temporal safety assertion
-            if snapshot_source_timestamp and snapshot_source_timestamp > t0_timestamp:
+            if snapshot_source_timestamp and snapshot_source_timestamp > sandbox_snapshot_cutoff:
                 raise RuntimeError(
-                    f"TEMPORAL LEAK: snapshot_ts {snapshot_source_timestamp} > t0 {t0_timestamp}"
+                    f"TEMPORAL LEAK: snapshot_ts {snapshot_source_timestamp} > cutoff {sandbox_snapshot_cutoff}"
                 )
-            if intel_source_timestamp and intel_source_timestamp > t0_timestamp:
+            if intel_source_timestamp and intel_source_timestamp > sandbox_snapshot_cutoff:
                 raise RuntimeError(
-                    f"TEMPORAL LEAK: intel_ts {intel_source_timestamp} > t0 {t0_timestamp}"
+                    f"TEMPORAL LEAK: intel_ts {intel_source_timestamp} > cutoff {sandbox_snapshot_cutoff}"
                 )
 
             # ── Step 2: S6 Baseline (independent evaluation, preserved) ──────
             coin_dict = vars(coin).copy() if hasattr(coin, '__dict__') else dict(coin)
+            if 'timestamp' not in coin_dict:
+                coin_dict['timestamp'] = t0_timestamp
             mock_portfolio = LabPortfolio("mock_s7")
             mock_portfolio.initial_cash = 500.0
             mock_portfolio.cash = 500.0
@@ -284,7 +287,7 @@ def evaluate_and_record_shadow_decision(coin, s6_allocation: float, s6_decision:
                     INSERT OR IGNORE INTO s7_shadow_decisions (
                         signal_id, symbol, decision_timestamp, model_version,
                         opportunity_score, execution_risk_score, net_score,
-                        shadow_allocation, hypothetical_allocation,
+                        shadow_allocation,
                         estimated_entry_impact, estimated_exit_impact,
                         estimated_round_trip_cost,
                         s6_decision, s6_allocation,
@@ -298,7 +301,7 @@ def evaluate_and_record_shadow_decision(coin, s6_allocation: float, s6_decision:
                     ) VALUES (
                         ?, ?, ?, ?,
                         ?, ?, ?,
-                        ?, ?,
+                        ?,
                         ?, ?,
                         ?,
                         ?, ?,
@@ -313,7 +316,7 @@ def evaluate_and_record_shadow_decision(coin, s6_allocation: float, s6_decision:
                 """, (
                     signal_id, symbol, t0_timestamp, model_ver,
                     opp_score, 0.0, opp_score,
-                    shadow_allocation, hypothetical_allocation,
+                    shadow_allocation,
                     est_entry, est_exit,
                     est_rt,
                     s6_decision, s6_allocation,
@@ -329,10 +332,12 @@ def evaluate_and_record_shadow_decision(coin, s6_allocation: float, s6_decision:
                 if cursor.rowcount == 0:
                     print(f"[S7 SHADOW] Duplicate skipped for {symbol} ({signal_id})")
                 else:
+                    p_rug_str = f"{p_rug:.3f}" if p_rug is not None else "N/A"
+                    opp_str = f"{opp_score:.3f}" if opp_score is not None else "N/A"
                     print(
                         f"[S7 SHADOW] Recorded: {symbol} | "
-                        f"ML={rec} p_rug={p_rug:.3f if p_rug is not None else 'N/A'} "
-                        f"opp={opp_score:.3f if opp_score is not None else 'N/A'} "
+                        f"ML={rec} p_rug={p_rug_str} "
+                        f"opp={opp_str} "
                         f"hyp_alloc=${hypothetical_allocation:.0f} "
                         f"shadow_alloc=$0 | "
                         f"S6={s6_decision} ${s6_allocation:.2f}"

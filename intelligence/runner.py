@@ -291,7 +291,8 @@ class IntelligenceRunner:
         # --------------------------------------------------
         try:
             db = self._get_db()
-            db.save_intelligence(record)
+            with db.db_lock:
+                db.intelligence_logger.save(record)
             logger.info(
                 "[INTEL] %s | Collection %s ✅ | "
                 "Narrative=%s | Viral=%.1f | News=%.1f | MomentumMC=%.2f",
