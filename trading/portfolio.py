@@ -23,6 +23,9 @@ class Portfolio:
         self.max_open_positions = 10
         self.minimum_cash = 10.0
 
+        # Peak equity tracking for S6 compatibility
+        self._peak_val = self.initial_balance
+
     # ==========================================
     # ADD POSITION
     # ==========================================
@@ -30,6 +33,7 @@ class Portfolio:
     def add_position(self, position: Position):
 
         self.positions.append(position)
+        self.update_peak_equity()
 
     # ==========================================
     # CLOSE POSITION
@@ -55,6 +59,7 @@ class Portfolio:
             )
 
             self.total_profit += net_profit
+            self.update_peak_equity()
 
     # ==========================================
     # OPEN POSITIONS
@@ -150,3 +155,32 @@ Closed Trades     : {len(self.closed_positions)}
 
 ==================================================
 """
+
+    # ==========================================
+    # S6 API COMPATIBILITY BRIDGES
+    # ==========================================
+
+    def update_peak_equity(self):
+        """Explicitly update the peak equity value to the current portfolio value if it is a new high."""
+        val = self.portfolio_value()
+        if val > self._peak_val:
+            self._peak_val = val
+
+    @property
+    def _peak_equity(self):
+        """Read-only property returning the tracked peak equity without side effects."""
+        return self._peak_val
+
+    @property
+    def total_equity(self):
+        """Compatibility bridge to return current total portfolio value."""
+        return self.portfolio_value()
+
+    @property
+    def initial_cash(self):
+        """Compatibility bridge to return starting balance."""
+        return self.initial_balance
+
+    def can_open(self, amount):
+        """Compatibility bridge to delegate to can_open_trade."""
+        return self.can_open_trade(amount)
