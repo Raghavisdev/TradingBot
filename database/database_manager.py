@@ -230,6 +230,9 @@ class DatabaseManager:
         exit_reason: str,
         fees: float = 0.0,
         slippage: float = 0.0,
+        cost_mode: str = "MODELED_COST",
+        network_fee: float = 0.0,
+        commission: float = 0.0,
     ) -> bool:
         """
         Persist a partial sell.
@@ -251,6 +254,9 @@ class DatabaseManager:
                 exit_reason=exit_reason,
                 fees=fees,
                 slippage=slippage,
+                cost_mode=cost_mode,
+                network_fee=network_fee,
+                commission=commission,
             )
 
     # ==================================================
@@ -264,6 +270,9 @@ class DatabaseManager:
         fees: float = 0.0,
         slippage: float = 0.0,
         proceeds: float = None,
+        cost_mode: str = "MODELED_COST",
+        network_fee: float = 0.0,
+        commission: float = 0.0,
     ) -> bool:
         """
         Mark a paper trade as CLOSED.
@@ -280,6 +289,9 @@ class DatabaseManager:
                 fees=fees,
                 slippage=slippage,
                 proceeds=proceeds,
+                cost_mode=cost_mode,
+                network_fee=network_fee,
+                commission=commission,
             )
 
     # ==================================================

@@ -661,6 +661,9 @@ class TradeLogger:
         fees=0.0,
         slippage=0.0,
         proceeds=None,
+        cost_mode="MODELED_COST",
+        network_fee=0.0,
+        commission=0.0,
     ) -> bool:
 
         trade_id = getattr(
@@ -794,8 +797,11 @@ class TradeLogger:
                        mae = ?,
                        fees = ?,
                        slippage = ?,
+                       cost_mode = ?,
+                       network_fee = ?,
+                       commission = ?,
                        updated_at = ?
-                 WHERE trade_id = ?
+                  WHERE trade_id = ?
                 """,
                 (
                     now,
@@ -829,6 +835,12 @@ class TradeLogger:
                     total_fees,
 
                     total_slippage,
+
+                    cost_mode,
+
+                    float(network_fee or 0.0),
+
+                    float(commission or 0.0),
 
                     now,
 
