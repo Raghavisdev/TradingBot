@@ -1,6 +1,7 @@
 import unittest
 import os
 import sys
+from unittest.mock import patch, MagicMock
 
 # Ensure project root is in sys.path
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -96,22 +97,48 @@ class TestPortfolioCompat(unittest.TestCase):
         portfolio.update_peak_equity()
         self.assertEqual(portfolio._peak_equity, 550.0)
 
-    def test_4_s6_execution_recheck_and_amount(self):
-        """Test 4 & 5: S6 execution no longer fails with 'Invalid portfolio equity' and returns amount > 0."""
+    @patch('requests.get')
+    @patch('collectors.live_market._fetch_dexscreener')
+    @patch('collectors.live_market.update_market')
+    @patch('collectors.dexscreener.update_dex_data')
+    @patch('ai_engine.execution_recheck.check_execution', create=True)
+    def test_4_s6_execution_recheck_and_amount(self, mock_check_exec, mock_update_dex, mock_update_market, mock_fetch_dex, mock_requests_get):
+        """Test 4 & 5: Mock S6 execution returns S6ProductionEntry with positive amount and no equity errors."""
+        mock_check_exec.return_value = True
+        mock_update_dex.return_value = True
+        mock_update_market.return_value = True
+        
+        # Mock requests.get to return a valid pair
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "pairs": [{
+                "priceUsd": "1.0",
+                "liquidity": {"usd": 50000.0},
+                "volume": {"h24": 100000.0},
+                "fdv": 1000000.0
+            }]
+        }
+        mock_requests_get.return_value = mock_resp
+        mock_fetch_dex.return_value = mock_resp.json.return_value
+        
         os.environ['PAPER_INITIAL_BALANCE'] = "500.0"
         portfolio = Portfolio()
         coin = MockCoin()
         
         # Run execution
-        amount, reason = evaluate_s6_production_entry(coin, portfolio)
+        result = evaluate_s6_production_entry(coin, portfolio)
         
-        # Confirm no 'Invalid portfolio equity' reason
-        self.assertNotEqual(reason, "Invalid portfolio equity")
-        self.assertEqual(reason, "Success")
+        # Assert type matches S6ProductionEntry
+        self.assertEqual(result.__class__.__name__, "S6ProductionEntry")
         
-        # Confirm returned amount is > 0
-        self.assertGreater(amount, 0.0)
-        print(f"\n[TEST RESULT] Mock S6 allocation amount: ${amount:.2f}")
+        # Assertions required by the prompt
+        self.assertTrue(result.eligible)
+        self.assertIsNotNone(result.decision)
+        self.assertGreater(result.decision.amount, 0.0)
+        self.assertNotIn("Invalid portfolio equity", result.reason)
+        
+        print(f"\n[TEST RESULT] Mock S6 allocation amount: ${result.decision.amount:.2f}")
 
 if __name__ == '__main__':
     unittest.main()
