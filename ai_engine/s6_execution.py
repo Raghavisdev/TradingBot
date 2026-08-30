@@ -77,20 +77,20 @@ def evaluate_s6_execution(coin: Any, portfolio: Any) -> S6ExecutionDecision | No
         )
         
     # Delay Resilience: Momentum Filter (30s price >= 0.95 * 0s price)
-    if state.mc_multiple_from_signal is not None:
-        if state.mc_multiple_from_signal < 0.95:
+    if state.price_multiple_from_signal is not None:
+        if state.price_multiple_from_signal < 0.95:
             return S6ExecutionDecision(
                 amount=0.0,
                 quality=0.0,
                 execution_state=state,
-                reason=f"Momentum decay: MCx {state.mc_multiple_from_signal:.3f} < 0.95"
+                reason=f"Momentum decay: Price multiple {state.price_multiple_from_signal:.3f} < 0.95"
             )
-        if state.mc_multiple_from_signal > 2.0:
+        if state.price_multiple_from_signal > 2.0:
             return S6ExecutionDecision(
                 amount=0.0,
                 quality=0.0,
                 execution_state=state,
-                reason=f"MCx {state.mc_multiple_from_signal:.2f} > 2.0"
+                reason=f"Price multiple {state.price_multiple_from_signal:.2f} > 2.0"
             )
 
     # Check Portfolio Equity bounds

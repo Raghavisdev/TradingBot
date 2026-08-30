@@ -105,7 +105,9 @@ class TestPipelineS6E2E(unittest.TestCase):
             buys_5m=50,
             sells_5m=50,
             signal_market_cap=50000.0,
+            signal_price=1.0,
             mc_multiple_from_signal=1.0,
+            price_multiple_from_signal=1.0,
             signal_age_seconds=10.0
         )
 
@@ -144,7 +146,8 @@ class TestPipelineS6E2E(unittest.TestCase):
         self.mock_recheck.return_value = ExecutionState(
             checked_at=1000.0, market_cap=50000.0, price=1.0, liquidity=20000.0,
             volume_5m=5000.0, buys_5m=50, sells_5m=50, signal_market_cap=50000.0,
-            mc_multiple_from_signal=1.0, signal_age_seconds=10.0
+            signal_price=1.0, mc_multiple_from_signal=1.0, price_multiple_from_signal=1.0,
+            signal_age_seconds=10.0
         )
         
         # mock paper setup removed
@@ -185,7 +188,8 @@ class TestPipelineS6E2E(unittest.TestCase):
         self.mock_recheck.return_value = ExecutionState(
             checked_at=1000.0, market_cap=50000.0, price=1.0, liquidity=20000.0,
             volume_5m=5000.0, buys_5m=50, sells_5m=50, signal_market_cap=50000.0,
-            mc_multiple_from_signal=1.0, signal_age_seconds=10.0
+            signal_price=1.0, mc_multiple_from_signal=1.0, price_multiple_from_signal=1.0,
+            signal_age_seconds=10.0
         )
         
         mock_paper = MagicMock()
@@ -222,9 +226,10 @@ class TestPipelineS6E2E(unittest.TestCase):
 
         # MCx = 2.01
         self.mock_recheck.return_value = ExecutionState(
-            checked_at=1000.0, market_cap=100500.0, price=1.0, liquidity=20000.0,
+            checked_at=1000.0, market_cap=150000.0, price=3.0, liquidity=20000.0,
             volume_5m=5000.0, buys_5m=50, sells_5m=50, signal_market_cap=50000.0,
-            mc_multiple_from_signal=2.01, signal_age_seconds=10.0
+            signal_price=1.0, mc_multiple_from_signal=3.0, price_multiple_from_signal=3.0,
+            signal_age_seconds=10.0
         )
         
         mock_paper = MagicMock()
@@ -234,7 +239,7 @@ class TestPipelineS6E2E(unittest.TestCase):
             coin = process_message(message)
             
         # Verify blocked by position sizer due to amount = 0
-        self.assertIn("Position Sizer: MCx 2.01 > 2.0", getattr(coin, 'buy_blocked_by', ''))
+        self.assertIn("Position Sizer: Price multiple 3.00 > 2.0", getattr(coin, 'buy_blocked_by', ''))
         
         mock_paper.buy.assert_not_called()
 

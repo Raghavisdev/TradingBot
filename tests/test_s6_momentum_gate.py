@@ -25,7 +25,8 @@ class TestS6MomentumGate(unittest.TestCase):
         state = ExecutionState(
             checked_at=123.0, market_cap=50000, price=1.0,
             liquidity=2000, volume_5m=0, buys_5m=0, sells_5m=0,
-            signal_market_cap=50000, mc_multiple_from_signal=1.0,
+            signal_market_cap=50000, signal_price=1.0,
+            mc_multiple_from_signal=1.0, price_multiple_from_signal=1.0,
             signal_age_seconds=25.0
         )
         mock_recheck.return_value = state
@@ -41,7 +42,8 @@ class TestS6MomentumGate(unittest.TestCase):
         state = ExecutionState(
             checked_at=123.0, market_cap=50000, price=1.0,
             liquidity=999.0, volume_5m=0, buys_5m=0, sells_5m=0,
-            signal_market_cap=50000, mc_multiple_from_signal=1.0,
+            signal_market_cap=50000, signal_price=1.0,
+            mc_multiple_from_signal=1.0, price_multiple_from_signal=1.0,
             signal_age_seconds=25.0
         )
         mock_recheck.return_value = state
@@ -58,7 +60,8 @@ class TestS6MomentumGate(unittest.TestCase):
         state = ExecutionState(
             checked_at=123.0, market_cap=47000, price=0.94,
             liquidity=2000.0, volume_5m=0, buys_5m=0, sells_5m=0,
-            signal_market_cap=50000, mc_multiple_from_signal=0.94,
+            signal_market_cap=50000, signal_price=1.0,
+            mc_multiple_from_signal=0.94, price_multiple_from_signal=0.94,
             signal_age_seconds=25.0
         )
         mock_recheck.return_value = state
@@ -66,7 +69,7 @@ class TestS6MomentumGate(unittest.TestCase):
         decision = evaluate_s6_execution(coin, self.portfolio)
         self.assertIsNotNone(decision)
         self.assertEqual(decision.amount, 0.0)
-        self.assertIn("Momentum decay: MCx 0.940 < 0.95", decision.reason)
+        self.assertIn("Momentum decay: Price multiple 0.940 < 0.95", decision.reason)
 
     @patch("ai_engine.s6_execution.recheck_market")
     def test_valid_entry_gets_exact_2_dollars(self, mock_recheck):
@@ -75,7 +78,8 @@ class TestS6MomentumGate(unittest.TestCase):
         state = ExecutionState(
             checked_at=123.0, market_cap=52500, price=1.05,
             liquidity=5000.0, volume_5m=0, buys_5m=0, sells_5m=0,
-            signal_market_cap=50000, mc_multiple_from_signal=1.05,
+            signal_market_cap=50000, signal_price=1.0,
+            mc_multiple_from_signal=1.05, price_multiple_from_signal=1.05,
             signal_age_seconds=25.0
         )
         mock_recheck.return_value = state
