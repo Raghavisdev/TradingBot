@@ -1,5 +1,6 @@
-﻿import threading
+import threading
 import os
+import sys
 from parsers.signal_parser import parse_signal
 
 from collectors.manager import collect_all
