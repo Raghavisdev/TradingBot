@@ -21,145 +21,91 @@ MAX_TRADE_USD = float(
 
 def get_s6_base_size(coin):
     """
-    LAPC-v2 SMART ENTRY PROBE SIZING
+    Legacy base sizing (Preserved for non-S6 strategies).
     """
-    final_score = getattr(coin, "final_score", 0)
+    confidence = (
+        getattr(coin, "gemtools_score", 0) * 0.45 +
+        getattr(coin, "fundamental_score", 0) * 0.35 +
+        getattr(coin, "market_health", 0) * 0.20
+    )
 
-    if final_score < 62:
-        return 0.0
+    if confidence < 70: return 0.0
+    if (getattr(coin, "dev", 0) or 0) > 15: return 0.0
+    if (getattr(coin, "top10", 0) or 0) > 40: return 0.0
+    if (getattr(coin, "bundled", 0) or 0) > 10: return 0.0
+    if (getattr(coin, "liquidity", 0) or 0) < 15000: return 0.0
 
-    from ai_engine.validator import validate_s6_execution
-    is_valid_s6, s6_reason = validate_s6_execution(coin)
-    if not is_valid_s6:
-        return 0.0
-
-    return 2.0
+    if confidence >= 95: return 7.0
+    elif confidence >= 90: return 6.0
+    elif confidence >= 85: return 5.0
+    elif confidence >= 80: return 4.0
+    elif confidence >= 75: return 3.0
+    else: return 2.0
 
 
 def get_position_size(coin, portfolio):
-    """
-    Capital-aware S6 position sizing.
+    strategy_id = getattr(coin, "strategy_id", "S6_Moonshot_Ladder")
 
-    The S6 decision and confidence structure remain unchanged.
+    cash = float(getattr(portfolio, "cash", 0.0) or 0.0)
 
-    Example with $100 reference capital:
+    # ========================================================
+    # S6_Moonshot_Ladder (LAPC-v2)
+    # ========================================================
+    if strategy_id == "S6_Moonshot_Ladder":
+        final_score = getattr(coin, "final_score", 0)
+        if final_score < 62:
+            return 0.0
 
-        S6 base = $5
+        from ai_engine.validator import validate_s6_execution
+        is_valid_s6, s6_reason = validate_s6_execution(coin, strategy_id)
+        if not is_valid_s6:
+            return 0.0
 
-        $20 capital:
-            $5 * 20/100 = $1
+        amount = 2.0  # EXACT $2 probe, no capital scaling
 
-        $100 capital:
-            $5 * 100/100 = $5
+        # S6 PORTFOLIO LIMITS
+        open_positions = portfolio.get_open_positions()
+        s6_count = sum(1 for p in open_positions if getattr(p, "strategy_id", "default") == "S6_Moonshot_Ladder")
 
-        $500 capital:
-            raw = $25
-            capped by MAX_TRADE_USD
-    """
+        if s6_count >= 5:
+            return 0.0
 
+        s6_deployed = sum(
+            getattr(p, "invested_amount", 0) + getattr(p, "entry_fees", 0) + getattr(p, "entry_slippage", 0) + getattr(p, "network_fee", 0)
+            for p in open_positions if getattr(p, "strategy_id", "default") == "S6_Moonshot_Ladder"
+        )
+
+        if s6_deployed >= 35.0:
+            return 0.0
+
+        if s6_deployed + amount > 35.0:
+            amount = 35.0 - s6_deployed
+
+        amount = min(amount, cash)
+        return round(amount, 2)
+
+    # ========================================================
+    # LEGACY / OTHER STRATEGIES
+    # ========================================================
     base_amount = get_s6_base_size(coin)
 
     if base_amount <= 0:
         return 0.0
 
-    # --------------------------------------------------------
-    # Determine actual trading capital
-    #
-    # portfolio.initial_balance is used rather than assuming
-    # $100 forever.
-    # --------------------------------------------------------
-
-    capital = float(
-        getattr(
-            portfolio,
-            "initial_balance",
-            0.0
-        )
-        or 0.0
-    )
-
+    capital = float(getattr(portfolio, "initial_balance", 0.0) or 0.0)
     if capital <= 0:
         return 0.0
 
-    # --------------------------------------------------------
-    # Scale S6 allocation relative to actual capital
-    # --------------------------------------------------------
+    capital_multiplier = capital / REFERENCE_CAPITAL_USD
+    amount = base_amount * capital_multiplier
 
-    capital_multiplier = (
-        capital /
-        REFERENCE_CAPITAL_USD
-    )
-
-    amount = (
-        base_amount *
-        capital_multiplier
-    )
-
-    # --------------------------------------------------------
-    # Never exceed available cash
-    # --------------------------------------------------------
-
-    cash = float(
-        getattr(
-            portfolio,
-            "cash",
-            0.0
-        )
-        or 0.0
-    )
-
-    amount = min(
-        amount,
-        cash
-    )
-
-    # --------------------------------------------------------
-    # Absolute safety cap
-    # --------------------------------------------------------
-
-    amount = min(
-        amount,
-        MAX_TRADE_USD *
-        capital_multiplier
-    )
-
-    # --------------------------------------------------------
-    # S6 PORTFOLIO LIMITS (LAPC-v2)
-    # --------------------------------------------------------
-
-    open_positions = portfolio.get_open_positions()
-    s6_count = sum(1 for p in open_positions if getattr(p, "strategy_id", "default") == "S6_Moonshot_Ladder")
-
-    if s6_count >= 5:
-        return 0.0
-
-    s6_deployed = sum(
-        getattr(p, "invested_amount", 0) + getattr(p, "entry_fees", 0) + getattr(p, "entry_slippage", 0) + getattr(p, "network_fee", 0)
-        for p in open_positions if getattr(p, "strategy_id", "default") == "S6_Moonshot_Ladder"
-    )
-
-    # Also include the projected entry fees/slippage for THIS trade in the cap?
-    # We don't know the exact fees here, but we know deployed must not exceed 35.
-    # The actual fees will be deducted by paper_trader, but to be strictly under 35 deployed:
-    if s6_deployed >= 35.0:
-        return 0.0
-
-    if s6_deployed + amount > 35.0:
-        amount = 35.0 - s6_deployed
-
-    amount = min(amount, MAX_TRADE_USD)
-
-    # --------------------------------------------------------
-    # Avoid meaningless dust trades
-    # --------------------------------------------------------
+    amount = min(amount, cash)
+    amount = min(amount, MAX_TRADE_USD * capital_multiplier)
 
     if amount < MIN_TRADE_USD:
         return 0.0
 
-    return round(
-        amount,
-        2
-    )
+    return round(amount, 2)
 
 
 # ============================================================

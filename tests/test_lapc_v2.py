@@ -273,5 +273,71 @@ class TestLAPCV2(unittest.TestCase):
     def test_12_s7_absence(self):
         pass
 
+    def test_13_portfolio_100_s6_probe(self):
+        self.portfolio.cash = 100.0
+        self.portfolio.initial_balance = 100.0
+        c = self._mock_coin(62)
+        c.strategy_id = "S6_Moonshot_Ladder"
+        size = get_position_size(c, self.portfolio)
+        self.assertEqual(size, 2.0)
+
+    def test_13_portfolio_195_s6_probe(self):
+        self.portfolio.cash = 195.0
+        self.portfolio.initial_balance = 195.0
+        c = self._mock_coin(62)
+        c.strategy_id = "S6_Moonshot_Ladder"
+        size = get_position_size(c, self.portfolio)
+        self.assertEqual(size, 2.0)
+
+    def test_13_portfolio_220_50_s6_probe(self):
+        self.portfolio.cash = 220.50
+        self.portfolio.initial_balance = 220.50
+        c = self._mock_coin(62)
+        c.strategy_id = "S6_Moonshot_Ladder"
+        size = get_position_size(c, self.portfolio)
+        self.assertEqual(size, 2.0)
+
+    def test_13_portfolio_233_s6_probe(self):
+        self.portfolio.cash = 233.0
+        self.portfolio.initial_balance = 233.0
+        c = self._mock_coin(62)
+        c.strategy_id = "S6_Moonshot_Ladder"
+        size = get_position_size(c, self.portfolio)
+        self.assertEqual(size, 2.0)
+
+    def test_14_non_s6_strategy_scaling(self):
+        self.portfolio.cash = 200.0
+        self.portfolio.initial_balance = 200.0
+        c = self._mock_coin(62)
+        c.strategy_id = "S1_AI_Gem"
+        c.gemtools_score = 100
+        c.fundamental_score = 100
+        c.market_health = 100
+        c.liquidity = 20000
+        # Confidence = 45 + 35 + 20 = 100 => 7.0 base size
+        # capital_multiplier = 2.0
+        # size = 14.0
+        size = get_position_size(c, self.portfolio)
+        self.assertEqual(size, 14.0)
+
+    def test_15_mcx_1_5_probe(self):
+        c = self._mock_coin(62, live_mc=150000, signal_mc=100000)
+        c.strategy_id = "S6_Moonshot_Ladder"
+        size = get_position_size(c, self.portfolio)
+        self.assertEqual(size, 2.0)
+
+    def test_15_mcx_2_5_rejected(self):
+        c = self._mock_coin(62, live_mc=250000, signal_mc=100000)
+        c.strategy_id = "S6_Moonshot_Ladder"
+        size = get_position_size(c, self.portfolio)
+        self.assertEqual(size, 0.0)
+
+    def test_15_missing_signal_mc_rejected(self):
+        c = self._mock_coin(62)
+        c.signal_market_cap = None
+        c.strategy_id = "S6_Moonshot_Ladder"
+        size = get_position_size(c, self.portfolio)
+        self.assertEqual(size, 0.0)
+
 if __name__ == "__main__":
     unittest.main()
