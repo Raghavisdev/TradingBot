@@ -1,0 +1,160 @@
+import unittest
+import os
+from unittest.mock import patch, MagicMock
+
+from trading.portfolio import Portfolio
+from ai_engine.s6_execution import evaluate_s6_execution
+from ai_engine.execution_recheck import ExecutionState
+
+class MockCoin:
+    def __init__(self):
+        self.symbol = "TEST"
+        self.valid = True
+        self.final_score = 65.0
+        self.gt_score = 1
+        self.signal_market_cap = 50000.0
+        self.signal_time = "2026-08-30T10:00:00"
+        self.buys = 100
+        self.sells = 50
+        self.liquidity = 25000.0
+        self.live_market_cap = 50000.0
+        self.price = 1.0
+        self.volume_5m = 5000.0
+        self.last_api_success = True
+
+class TestS6Execution(unittest.TestCase):
+    
+    def setUp(self):
+        self.portfolio = Portfolio()
+        self.portfolio.initial_balance = 500.0
+        self.portfolio.cash = 500.0
+        self.coin = MockCoin()
+
+    @patch('ai_engine.s6_execution.recheck_market')
+    def test_1_high_quality_signal(self, mock_recheck):
+        # High quality: high final score, gt_score, liquidity, high buy ratio
+        self.coin.final_score = 90.0
+        self.coin.gt_score = 3
+        self.coin.buys = 200
+        self.coin.sells = 10
+        self.coin.liquidity = 100000.0
+        
+        mock_recheck.return_value = ExecutionState(
+            checked_at=1000.0,
+            market_cap=50000.0,
+            price=1.0,
+            liquidity=100000.0,
+            volume_5m=20000.0,
+            buys_5m=200,
+            sells_5m=10,
+            signal_market_cap=50000.0,
+            mc_multiple_from_signal=1.0,
+            signal_age_seconds=10.0
+        )
+        
+        decision = evaluate_s6_execution(self.coin, self.portfolio)
+        self.assertIsNotNone(decision)
+        self.assertEqual(decision.amount, 2.0, "High quality signal should yield exactly $2.0")
+
+    @patch('ai_engine.s6_execution.recheck_market')
+    def test_2_low_quality_signal(self, mock_recheck):
+        # Low quality (but >= 62 for eligibility):
+        self.coin.final_score = 62.0
+        self.coin.gt_score = 0
+        self.coin.buys = 10
+        self.coin.sells = 100
+        self.coin.liquidity = 5000.0
+        
+        mock_recheck.return_value = ExecutionState(
+            checked_at=1000.0,
+            market_cap=10000.0,
+            price=1.0,
+            liquidity=5000.0,
+            volume_5m=1000.0,
+            buys_5m=10,
+            sells_5m=100,
+            signal_market_cap=10000.0,
+            mc_multiple_from_signal=1.0,
+            signal_age_seconds=10.0
+        )
+        
+        decision = evaluate_s6_execution(self.coin, self.portfolio)
+        self.assertIsNotNone(decision)
+        self.assertEqual(decision.amount, 2.0, "Low quality valid signal should yield exactly $2.0")
+
+    @patch('ai_engine.s6_execution.recheck_market')
+    def test_3_portfolio_100(self, mock_recheck):
+        self.portfolio.cash = 100.0
+        self.portfolio.initial_balance = 100.0
+        mock_recheck.return_value = ExecutionState(1000, 50000, 1.0, 20000, 5000, 50, 50, 50000, 1.0, 10.0)
+        
+        decision = evaluate_s6_execution(self.coin, self.portfolio)
+        self.assertEqual(decision.amount, 2.0)
+
+    @patch('ai_engine.s6_execution.recheck_market')
+    def test_4_portfolio_237_35(self, mock_recheck):
+        # The exact balance that was causing $11.87
+        self.portfolio.cash = 237.35
+        self.portfolio.initial_balance = 100.0
+        mock_recheck.return_value = ExecutionState(1000, 50000, 1.0, 20000, 5000, 50, 50, 50000, 1.0, 10.0)
+        
+        decision = evaluate_s6_execution(self.coin, self.portfolio)
+        self.assertEqual(decision.amount, 2.0)
+
+    @patch('ai_engine.s6_execution.recheck_market')
+    def test_5_portfolio_500_plus(self, mock_recheck):
+        self.portfolio.cash = 1000.0
+        self.portfolio.initial_balance = 500.0
+        mock_recheck.return_value = ExecutionState(1000, 50000, 1.0, 20000, 5000, 50, 50, 50000, 1.0, 10.0)
+        
+        decision = evaluate_s6_execution(self.coin, self.portfolio)
+        self.assertEqual(decision.amount, 2.0)
+
+    @patch('ai_engine.s6_execution.recheck_market')
+    def test_6_score_61_rejected(self, mock_recheck):
+        self.coin.final_score = 61.0
+        mock_recheck.return_value = ExecutionState(1000, 50000, 1.0, 20000, 5000, 50, 50, 50000, 1.0, 10.0)
+        
+        decision = evaluate_s6_execution(self.coin, self.portfolio)
+        self.assertEqual(decision.amount, 0.0)
+        self.assertIn("61.0 < 62.0", decision.reason)
+
+    @patch('ai_engine.s6_execution.recheck_market')
+    def test_7_mcx_2_01_rejected(self, mock_recheck):
+        mock_recheck.return_value = ExecutionState(
+            checked_at=1000.0,
+            market_cap=100500.0,
+            price=1.0,
+            liquidity=20000.0,
+            volume_5m=5000.0,
+            buys_5m=50,
+            sells_5m=50,
+            signal_market_cap=50000.0,
+            mc_multiple_from_signal=2.01,
+            signal_age_seconds=10.0
+        )
+        
+        decision = evaluate_s6_execution(self.coin, self.portfolio)
+        self.assertEqual(decision.amount, 0.0)
+        self.assertIn("> 2.0", decision.reason)
+
+    @patch('ai_engine.s6_execution.recheck_market')
+    def test_8_mcx_1_0_accepted(self, mock_recheck):
+        mock_recheck.return_value = ExecutionState(
+            checked_at=1000.0,
+            market_cap=50000.0,
+            price=1.0,
+            liquidity=20000.0,
+            volume_5m=5000.0,
+            buys_5m=50,
+            sells_5m=50,
+            signal_market_cap=50000.0,
+            mc_multiple_from_signal=1.0,
+            signal_age_seconds=10.0
+        )
+        
+        decision = evaluate_s6_execution(self.coin, self.portfolio)
+        self.assertEqual(decision.amount, 2.0)
+
+if __name__ == '__main__':
+    unittest.main()
