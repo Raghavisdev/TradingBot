@@ -1,0 +1,13 @@
+{
+  "policy": "FixedLadderTrailing",
+  "hard_stop_pct": -30.0,
+  "trail_activation_pct": 50.0,
+  "trailing_stop_pct": 30.0,
+  "profit_rungs": [
+    {
+      "trigger_pct": 150.0,
+      "sell_pct": 50.0
+    }
+  ],
+  "scale_in_enabled": false
+}

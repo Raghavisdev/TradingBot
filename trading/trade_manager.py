@@ -1,10 +1,11 @@
-﻿import time
+import time
 import logging
 from datetime import datetime
 
 from collectors.live_market import update_market
 from ai_engine.market_health import calculate_market_health
 from ai_engine.exit_ai import get_exit_decision
+from ai_engine.s6_canonical_exit import evaluate_s6_exit
 from trading.position import Position
 from database.database import database
 
@@ -247,8 +248,18 @@ class TradeManager:
             # ------------------------------------------
             # Exit AI
             # ------------------------------------------
-
-            action, confidence, reason = get_exit_decision(position)
+            
+            strat_id = getattr(position, "strategy_id", "")
+            if strat_id == "S6_Moonshot_Ladder":
+                action, pct_sell, reason = evaluate_s6_exit(position, position.current_price)
+                confidence = 100 if action != "HOLD" else 0
+                
+                # If canonical exit returns a SELL_PCT action, we must route it 
+                # to the paper_trader correctly. Since paper_trader uses standard action strings:
+                if action == "SELL_PCT":
+                    action = f"SELL_{int(pct_sell)}"
+            else:
+                action, confidence, reason = get_exit_decision(position)
 
             position.exit_action     = action
             position.exit_confidence = confidence
@@ -279,13 +290,8 @@ class TradeManager:
                         exit_reason=reason,
                     )
 
-            elif action in {
-                "SELL_70",
-                "SELL_40",
-                "SELL_20",
-                "SELL_15",
-            }:
-
+            elif action.startswith("SELL_") and action != "SELL_ALL":
+                
                 # Prevent the same AI exit action from being
                 # executed repeatedly on consecutive update cycles.
                 executed_actions = getattr(
@@ -299,83 +305,26 @@ class TradeManager:
                     print(
                         "EXIT ACTION SKIPPED:",
                         action,
-                        "already executed for this position.",
+                        "(Already Executed)",
                     )
-
-                elif position.remaining_percent <= 0:
-
-                    print(
-                        "EXIT ACTION SKIPPED:",
-                        action,
-                        "position already fully sold.",
-                    )
-
                 else:
 
-                    percent = {
-                        "SELL_70": 70,
-                        "SELL_40": 40,
-                        "SELL_20": 20,
-                        "SELL_15": 15,
-                    }[action]
-
-                    previous_remaining = (
-                        position.remaining_percent
-                    )
-
                     try:
+                        pct_to_sell = float(action.split("_")[1])
+                    except:
+                        pct_to_sell = 0.0
 
-                        result = self.trader.partial_sell(
+                    if pct_to_sell > 0:
+                        success = self.trader.partial_sell(
                             position,
-                            percent,
+                            percent=pct_to_sell,
                             exit_reason=reason,
                         )
-
-                        # Only mark the action as executed if
-                        # the sell operation reports success.
-                        if result is not False:
-
+                        if success:
                             executed_actions.add(action)
+                            position.executed_exit_actions = executed_actions
 
-                            position.executed_exit_actions = (
-                                executed_actions
-                            )
 
-                            print(
-                                "EXIT ACTION EXECUTED:",
-                                action,
-                                "|",
-                                f"Remaining: "
-                                f"{position.remaining_percent}%",
-                            )
-
-                        else:
-
-                            print(
-                                "EXIT ACTION FAILED:",
-                                action,
-                                "| Action remains retryable.",
-                            )
-
-                    except Exception as exc:
-
-                        print(
-                            "EXIT ACTION ERROR:",
-                            action,
-                            "|",
-                            exc,
-                        )
-
-                        # Do not mark failed actions as executed.
-                        position.remaining_percent = max(
-                            0,
-                            position.remaining_percent,
-                        )
-
-                        print(
-                            "Previous remaining:",
-                            previous_remaining,
-                        )
 
     # ==================================================
     # RUN FOREVER
