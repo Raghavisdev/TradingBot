@@ -1,4 +1,4 @@
-import threading
+﻿import threading
 
 from database.signal_logger import SignalLogger
 from database.snapshot_logger import SnapshotLogger
@@ -215,6 +215,32 @@ class DatabaseManager:
                 trade_id=trade_id,
                 fees=fees,
                 slippage=slippage,
+            )
+
+    # ==================================================
+    # PROBE STATE
+    # ==================================================
+
+    def update_probe_state(self, trade_id, scale_in_completed, post_probe_snapshot_count):
+        with self.db_lock:
+            return self.trade_logger.update_probe_state(trade_id, scale_in_completed, post_probe_snapshot_count)
+
+    # ==================================================
+    # SCALE IN
+    # ==================================================
+
+    def record_scale_in(
+        self,
+        position,
+        amount: float,
+        fees: float = 0.0,
+        slippage: float = 0.0,
+        cost_mode: str = "MODELED_COST",
+        network_fee: float = 0.0,
+    ) -> bool:
+        with self.db_lock:
+            return self.trade_logger.record_scale_in(
+                position, amount, fees, slippage, cost_mode, network_fee
             )
 
     # ==================================================

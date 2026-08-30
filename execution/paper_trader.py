@@ -1,4 +1,4 @@
-import time
+﻿import time
 import logging
 from datetime import datetime
 
@@ -115,6 +115,19 @@ class PaperTrader:
             )
             return None
 
+        # LAPC-v2 strict $35 limit including current transaction costs
+        open_positions = self.portfolio.get_open_positions()
+        s6_deployed = sum(
+            getattr(p, "invested_amount", 0.0) + getattr(p, "entry_fees", 0.0) + getattr(p, "entry_slippage", 0.0) + getattr(p, "network_fee", 0.0)
+            for p in open_positions if getattr(p, "strategy_id", "default") == "S6_Moonshot_Ladder"
+        )
+        if s6_deployed + total_cash_required > 35.0:
+            logger.warning(
+                "[PAPER BUY] Trade rejected. S6 deployed ($%.2f) + required ($%.2f) exceeds $35 cap.",
+                s6_deployed, total_cash_required
+            )
+            return None
+
         position = Position()
 
         position.symbol = coin.symbol
@@ -124,7 +137,7 @@ class PaperTrader:
             "signal_id",
             None,
         )
-        
+
         position.strategy_id = "S6_Moonshot_Ladder"
         position.strategy_version = "1.2"
 
@@ -133,6 +146,11 @@ class PaperTrader:
             coin.live_market_cap
         )
         position.entry_time = time.time()
+
+        position.probe_entry_time = position.entry_time
+        position.probe_entry_market_cap = position.entry_market_cap
+        position.scale_in_completed = 0
+        position.post_probe_snapshot_count = 0
 
         # Capital allocated to the asset itself.
         position.invested_amount = amount
@@ -155,6 +173,12 @@ class PaperTrader:
         position.fundamental_score = getattr(
             coin,
             "fundamental_score",
+            0,
+        )
+
+        position.final_score = getattr(
+            coin,
+            "final_score",
             0,
         )
 
@@ -217,6 +241,99 @@ class PaperTrader:
         print("Total cash used   : $", round(total_cash_required, 6))
         print("Cost Mode         :", cost_mode)
         print("Entry Price       :", position.entry_price)
+        print("Cash Left         : $", round(self.portfolio.cash, 6))
+        print("==============================")
+        print()
+
+        return position
+
+    # =========================================================
+    # SCALE IN
+    # =========================================================
+
+    def scale_in(self, position, amount):
+
+        amount = float(amount)
+
+        if amount <= 0:
+            return None
+
+        if position.status == "CLOSED":
+            return None
+
+        entry_friction, network_fee, cost_mode = self._get_execution_cost(
+            amount,
+            getattr(position, "contract", None),
+            side="BUY"
+        )
+
+        total_cash_required = amount + entry_friction
+
+        # Enforce LAPC-v2 $35 deployment cap
+        if getattr(position, "strategy_id", "default") == "S6_Moonshot_Ladder":
+            open_positions = self.portfolio.get_open_positions()
+            s6_deployed = sum(
+                getattr(p, "invested_amount", 0.0) + getattr(p, "entry_fees", 0.0) + getattr(p, "entry_slippage", 0.0) + getattr(p, "network_fee", 0.0)
+                for p in open_positions if getattr(p, "strategy_id", "default") == "S6_Moonshot_Ladder"
+            )
+            if s6_deployed + total_cash_required > 35.0:
+                logger.warning(
+                    "[PAPER SCALE] Scale-in rejected. S6 deployed (%.2f) + required (%.2f) exceeds $35 cap.",
+                    s6_deployed, total_cash_required
+                )
+                return False
+
+        if self.portfolio.cash < total_cash_required:
+            logger.warning(
+                "[PAPER SCALE] Not enough cash for %s",
+                position.symbol
+            )
+            return None
+
+        current_price = getattr(position, "current_price", 0.0)
+        if current_price <= 0:
+            return None
+
+        new_tokens = amount / current_price
+
+        position.invested_amount += amount
+        position.tokens += new_tokens
+
+        if position.tokens > 0:
+            position.entry_price = position.invested_amount / position.tokens
+
+        position.entry_slippage += entry_friction
+        position.network_fee += network_fee
+
+        self.portfolio.cash -= total_cash_required
+
+        try:
+            if not database.record_scale_in(
+                position,
+                amount=amount,
+                fees=0.0,
+                slippage=entry_friction,
+                cost_mode=cost_mode,
+                network_fee=network_fee
+            ):
+                logger.error(
+                    "[PAPER SCALE] DB persist failed for %s",
+                    position.symbol,
+                )
+        except Exception as exc:
+            logger.error(
+                "[PAPER SCALE] DB persist exception for %s: %s",
+                position.symbol,
+                exc,
+            )
+
+        print()
+        print("==============================")
+        print("PAPER SCALE-IN EXECUTED")
+        print("==============================")
+        print("Coin              :", position.symbol)
+        print("Added Investment  : $", round(amount, 6))
+        print("New Total Invested: $", round(position.invested_amount, 6))
         print("Cash Left         : $", round(self.portfolio.cash, 6))
         print("==============================")
         print()

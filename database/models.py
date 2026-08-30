@@ -206,6 +206,8 @@ def create_tables():
 
             trade_id            TEXT UNIQUE,
 
+            session_id          TEXT DEFAULT 'S6_FORWARD_2026_08_22',
+
             strategy_id         TEXT DEFAULT 'default',
 
             strategy_version    TEXT DEFAULT '1.0',
@@ -250,7 +252,15 @@ def create_tables():
 
             slippage            REAL DEFAULT 0.0,
 
-            updated_at          REAL
+            updated_at          REAL,
+
+            probe_entry_time    REAL,
+
+            probe_entry_market_cap REAL,
+
+            scale_in_completed  INTEGER DEFAULT 0,
+
+            post_probe_snapshot_count INTEGER DEFAULT 0
 
         )
 
@@ -259,7 +269,8 @@ def create_tables():
         new_paper_trade_cols = [
             "ALTER TABLE paper_trades ADD COLUMN cost_mode TEXT DEFAULT 'MODELED_COST'",
             "ALTER TABLE paper_trades ADD COLUMN network_fee REAL DEFAULT 0.0",
-            "ALTER TABLE paper_trades ADD COLUMN commission REAL DEFAULT 0.0"
+            "ALTER TABLE paper_trades ADD COLUMN commission REAL DEFAULT 0.0",
+            "ALTER TABLE paper_trades ADD COLUMN session_id TEXT DEFAULT 'S6_FORWARD_2026_08_22'"
         ]
         for stmt in new_paper_trade_cols:
             try:
@@ -280,6 +291,8 @@ def create_tables():
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
 
             trade_id        TEXT,
+
+            session_id      TEXT DEFAULT 'S6_HISTORICAL_VALIDATION',
 
             signal_id       TEXT,
 
@@ -308,7 +321,8 @@ def create_tables():
         new_paper_partial_cols = [
             "ALTER TABLE paper_partial_sells ADD COLUMN cost_mode TEXT DEFAULT 'MODELED_COST'",
             "ALTER TABLE paper_partial_sells ADD COLUMN network_fee REAL DEFAULT 0.0",
-            "ALTER TABLE paper_partial_sells ADD COLUMN commission REAL DEFAULT 0.0"
+            "ALTER TABLE paper_partial_sells ADD COLUMN commission REAL DEFAULT 0.0",
+            "ALTER TABLE paper_partial_sells ADD COLUMN session_id TEXT DEFAULT 'S6_FORWARD_2026_08_22'"
         ]
         for stmt in new_paper_partial_cols:
             try:
@@ -429,6 +443,7 @@ def create_tables():
         CREATE TABLE IF NOT EXISTS paper_lab_trades(
             id                  INTEGER PRIMARY KEY AUTOINCREMENT,
             trade_id            TEXT UNIQUE,
+            session_id          TEXT DEFAULT 'S6_HISTORICAL_VALIDATION',
             strategy_id         TEXT DEFAULT 'S1',
             strategy_version    TEXT DEFAULT '1.0',
             signal_id           TEXT,
@@ -470,6 +485,17 @@ def create_tables():
             except Exception:
                 pass
 
+        new_session_columns = [
+            "ALTER TABLE paper_lab_trades ADD COLUMN session_id TEXT DEFAULT 'S6_HISTORICAL_VALIDATION'",
+            "ALTER TABLE paper_lab_partial_sells ADD COLUMN session_id TEXT DEFAULT 'S6_HISTORICAL_VALIDATION'",
+            "ALTER TABLE paper_lab_equity ADD COLUMN session_id TEXT DEFAULT 'S6_HISTORICAL_VALIDATION'"
+        ]
+        for stmt in new_session_columns:
+            try:
+                cursor.execute(stmt)
+            except Exception:
+                pass
+
         # ======================================================
         # PAPER LAB PARTIAL SELLS
         # ======================================================
@@ -478,6 +504,9 @@ def create_tables():
         CREATE TABLE IF NOT EXISTS paper_lab_partial_sells(
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             trade_id        TEXT,
+
+            session_id      TEXT DEFAULT 'S6_FORWARD_2026_08_22',
+
             signal_id       TEXT,
             strategy_id     TEXT DEFAULT 'S1',
             sell_time       REAL,

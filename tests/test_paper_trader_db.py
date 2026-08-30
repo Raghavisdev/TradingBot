@@ -84,7 +84,7 @@ class TestPaperTraderDB(unittest.TestCase):
         # ----------------------------------------------------
         # 1. Paper BUY
         # ----------------------------------------------------
-        amount = 100.0
+        amount = 10.0
         position = self.trader.buy(coin, amount)
         self.assertIsNotNone(position)
         
@@ -96,7 +96,7 @@ class TestPaperTraderDB(unittest.TestCase):
         self.assertIsNotNone(row, "Paper trade row should be created in DB after buy")
         self.assertEqual(row[1], "TESTCOIN")
         self.assertEqual(row[2], "OPEN")
-        self.assertEqual(row[3], 100.0)
+        self.assertEqual(row[3], 10.0)
         self.assertEqual(row[4], "MODELED_COST")
         self.assertEqual(row[5], 0.0)
         

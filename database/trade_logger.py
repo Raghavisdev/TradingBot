@@ -1,4 +1,4 @@
-"""
+﻿"""
 Trade Logger
 ------------
 
@@ -49,6 +49,19 @@ class TradeLogger:
                 "PRAGMA busy_timeout=30000;"
             )
 
+            # LAPC-v2 schema migrations
+            try: cursor.execute("ALTER TABLE paper_trades ADD COLUMN probe_entry_time REAL;")
+            except Exception: pass
+
+            try: cursor.execute("ALTER TABLE paper_trades ADD COLUMN probe_entry_market_cap REAL;")
+            except Exception: pass
+
+            try: cursor.execute("ALTER TABLE paper_trades ADD COLUMN scale_in_completed INTEGER DEFAULT 0;")
+            except Exception: pass
+
+            try: cursor.execute("ALTER TABLE paper_trades ADD COLUMN post_probe_snapshot_count INTEGER DEFAULT 0;")
+            except Exception: pass
+
         finally:
             cursor.close()
 
@@ -93,9 +106,13 @@ class TradeLogger:
                     cost_mode,
                     network_fee,
                     commission,
-                    updated_at
+                    updated_at,
+                    probe_entry_time,
+                    probe_entry_market_cap,
+                    scale_in_completed,
+                    post_probe_snapshot_count
                 )
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     getattr(
@@ -221,6 +238,11 @@ class TradeLogger:
                     ),
 
                     now,
+
+                    getattr(position, "probe_entry_time", 0.0),
+                    getattr(position, "probe_entry_market_cap", 0.0),
+                    getattr(position, "scale_in_completed", 0),
+                    getattr(position, "post_probe_snapshot_count", 0),
                 ),
             )
 
@@ -323,6 +345,75 @@ class TradeLogger:
 
         finally:
 
+            cursor.close()
+
+    def update_probe_state(self, trade_id, scale_in_completed, post_probe_snapshot_count):
+        cursor = self.connection.cursor()
+        try:
+            cursor.execute(
+                """
+                UPDATE paper_trades
+                   SET scale_in_completed = ?,
+                       post_probe_snapshot_count = ?,
+                       updated_at = ?
+                 WHERE trade_id = ?
+                """,
+                (
+                    int(scale_in_completed),
+                    int(post_probe_snapshot_count),
+                    time.time(),
+                    trade_id
+                )
+            )
+            self.connection.commit()
+            return True
+        except Exception as exc:
+            self.connection.rollback()
+            logger.error("[TRADE LOGGER] update_probe_state failed: %s", exc)
+            return False
+        finally:
+            cursor.close()
+
+    # ==================================================
+    # SCALE IN
+    # ==================================================
+
+    def record_scale_in(self, position, amount, fees, slippage, cost_mode, network_fee):
+        cursor = self.connection.cursor()
+        try:
+            now = time.time()
+            cursor.execute(
+                """
+                UPDATE paper_trades
+                   SET invested = ?,
+                       tokens = ?,
+                       entry_price = ?,
+                       fees = fees + ?,
+                       slippage = slippage + ?,
+                       network_fee = network_fee + ?,
+                       scale_in_completed = ?,
+                       updated_at = ?
+                 WHERE trade_id = ?
+                """,
+                (
+                    getattr(position, "invested_amount", 0.0),
+                    getattr(position, "tokens", 0.0),
+                    getattr(position, "entry_price", 0.0),
+                    float(fees),
+                    float(slippage),
+                    float(network_fee),
+                    getattr(position, "scale_in_completed", 1),
+                    now,
+                    getattr(position, "trade_id", None)
+                )
+            )
+            self.connection.commit()
+            return True
+        except Exception as exc:
+            self.connection.rollback()
+            logger.error("[TRADE LOGGER] record_scale_in failed: %s", exc)
+            return False
+        finally:
             cursor.close()
 
     # ==================================================
@@ -475,11 +566,11 @@ class TradeLogger:
                     partial_pct,
 
                     exit_reason,
-                    
+
                     cost_mode,
-                    
+
                     float(network_fee),
-                    
+
                     float(commission),
                 ),
             )

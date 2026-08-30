@@ -1,4 +1,4 @@
-import threading
+﻿import threading
 import os
 from parsers.signal_parser import parse_signal
 
@@ -29,12 +29,12 @@ from intelligence.runner import intelligence_runner
 LIVE_TRADING = os.getenv("LIVE_TRADING", "False").lower() in ("true", "1", "yes")
 
 if LIVE_TRADING:
-    print("🚀 LIVE TRADING IS ENABLED")
+    print("ðŸš€ LIVE TRADING IS ENABLED")
     WALLET_PUBKEY = os.getenv("WALLET_PUBLIC_KEY", "MOCK_WALLET_PUBLIC_KEY_FOR_TESTING")
     portfolio = LivePortfolio(WALLET_PUBKEY)
     trader = LiveTrader(portfolio)
 else:
-    print("🧪 PAPER TRADING IS ENABLED")
+    print("ðŸ§ª PAPER TRADING IS ENABLED")
     portfolio = Portfolio()
     trader = PaperTrader(portfolio)
 
@@ -72,7 +72,7 @@ manager_thread.start()
 def process_message(message):
 
     print("\n" + "=" * 70)
-    print("🚀 PROCESSING NEW SIGNAL")
+    print("ðŸš€ PROCESSING NEW SIGNAL")
     print("=" * 70)
 
     # ======================================================
@@ -88,7 +88,7 @@ def process_message(message):
 
     if coin is None:
 
-        print("❌ Invalid Signal")
+        print("âŒ Invalid Signal")
 
         return None
 
@@ -102,22 +102,22 @@ def process_message(message):
 
     # ======================================================
     # START TRACKING IMMEDIATELY
-    # Every valid signal is tracked — regardless of decision or buy.
+    # Every valid signal is tracked â€” regardless of decision or buy.
     # ======================================================
 
     tracker_manager.start_tracking(coin)
 
     # ======================================================
     # PASSIVE INTELLIGENCE COLLECTION (AI V2)
-    # Runs in a background daemon thread — does NOT affect
+    # Runs in a background daemon thread â€” does NOT affect
     # the existing BUY/WATCH/SKIP decision in any way.
     # ======================================================
 
     intelligence_runner.collect(coin)
 
-    print("✅ Signal Parsed")
-    print("💾 Signal Saved")
-    print("📡 Tracking Started")
+    print("âœ… Signal Parsed")
+    print("ðŸ’¾ Signal Saved")
+    print("ðŸ“¡ Tracking Started")
 
     # ======================================================
     # COLLECT LIVE MARKET DATA
@@ -126,14 +126,46 @@ def process_message(message):
     coin = collect_all(coin)
 
     # ======================================================
-    # AI ANALYSIS
-    # ======================================================
-
+    # AI ANALYSIS (LEGACY)
+    # Always run make_decision to populate final_score (as it was used in research)
+    # and to preserve legacy causal availability.
     coin = analyze_gemtools(coin)
-
     coin = analyze_fundamentals(coin)
-
     coin = make_decision(coin)
+
+    vnext_mode = os.getenv("S6_Moonshot_VNext_MODE", "DISABLED").upper()
+
+    print(f"[STARTUP] VNEXT MODE: {vnext_mode}")
+    print(f"[STARTUP] LIVE_TRADING: {os.getenv('LIVE_TRADING', 'False')}")
+    print(f"[STARTUP] ACTIVE PYTHON: {sys.executable}")
+
+    if vnext_mode != "DISABLED":
+        # vNext EVALUATION
+        from ai_engine.s6_vnext.entry import vnext_evaluate_entry
+        vnext_decision, vnext_reason = vnext_evaluate_entry(coin)
+
+        if vnext_mode == "SHADOW":
+            # In shadow, we preserve legacy for production but log vNext
+            coin_legacy_decision = coin.decision
+
+            # Write to shadow comparison CSV
+            import csv
+            from pathlib import Path
+            project_root = Path(__file__).resolve().parent.parent
+            research_dir = project_root / "research"
+            research_dir.mkdir(parents=True, exist_ok=True)
+            shadow_file = str(research_dir / "phase6_shadow_comparison.csv")
+
+            file_exists = os.path.exists(shadow_file)
+            with open(shadow_file, "a", newline='') as sf:
+                writer = csv.writer(sf)
+                if not file_exists:
+                    writer.writerow(["signal_id", "timestamp", "production_decision", "vnext_decision", "reason_for_difference"])
+                writer.writerow([getattr(coin, "signal_id", "unknown"), getattr(coin, "timestamp", ""), coin_legacy_decision, vnext_decision, vnext_reason])
+
+        elif vnext_mode in ["PAPER", "LIVE"]:
+            # vNext entirely overrides legacy AI
+            coin.decision = vnext_decision
 
     # ======================================================
     # UPDATE SIGNAL WITH AI RESULT
@@ -156,12 +188,12 @@ def process_message(message):
     # ======================================================
     try:
         from s7_shadow.live_evaluator import evaluate_and_record_shadow_decision
-        
+
         # Calculate what S6 allocation would be if it wasn't rejected
         s6_amount = 0.0
         if coin.decision in ["BUY", "STRONG BUY"]:
             s6_amount = get_position_size(coin, portfolio)
-            
+
         evaluate_and_record_shadow_decision(coin, s6_amount, coin.decision)
     except Exception as s7_e:
         print(f"[S7 SHADOW ERROR] {s7_e}")
@@ -176,13 +208,18 @@ def process_message(message):
     # AI REJECTED
     # ======================================================
 
+    # LAPC-v2 S6 Override:
+    # For S6 specifically, probe eligibility is lowered to final_score >= 62.
+    if coin.decision not in ["BUY", "STRONG BUY"] and getattr(coin, "final_score", 0) >= 62:
+        coin.decision = "BUY"
+
     if coin.decision not in ["BUY", "STRONG BUY"]:
 
         coin.buy_blocked_by = "AI Decision"
         database.update_signal(coin)
 
-        print("\n❌ AI Rejected Trade")
-        print("📡 Signal will continue to be tracked.")
+        print("\nâŒ AI Rejected Trade")
+        print("ðŸ“¡ Signal will continue to be tracked.")
         print("=" * 70)
 
         return coin
@@ -196,7 +233,7 @@ def process_message(message):
         coin.buy_blocked_by = "Duplicate Position"
         database.update_signal(coin)
 
-        print("\n⚠ Already Holding This Coin")
+        print("\nâš  Already Holding This Coin")
         print("=" * 70)
 
         return coin
@@ -205,17 +242,22 @@ def process_message(message):
     # POSITION SIZE
     # ======================================================
 
-    amount = get_position_size(
-        coin,
-        portfolio
-    )
+    vnext_mode = os.getenv("S6_Moonshot_VNext_MODE", "DISABLED").upper()
+    if vnext_mode in ["PAPER", "LIVE"]:
+        from ai_engine.s6_vnext.entry import vnext_get_position_size
+        amount = vnext_get_position_size(coin, portfolio)
+    else:
+        amount = get_position_size(
+            coin,
+            portfolio
+        )
 
     if amount <= 0:
 
         coin.buy_blocked_by = "Position Sizer"
         database.update_signal(coin)
 
-        print("\n❌ Position Sizer Rejected Trade")
+        print("\nâŒ Position Sizer Rejected Trade")
         print("=" * 70)
 
         return coin
@@ -229,7 +271,7 @@ def process_message(message):
         coin.buy_blocked_by = "Portfolio Risk"
         database.update_signal(coin)
 
-        print("\n⚠ Portfolio Risk Manager Blocked Trade")
+        print("\nâš  Portfolio Risk Manager Blocked Trade")
         print("Reason : Max Positions / Cash Reserve")
         print("=" * 70)
 
@@ -239,7 +281,7 @@ def process_message(message):
     # EXECUTE PAPER BUY
     # ======================================================
 
-    print("\n✅ BUY APPROVED")
+    print("\nâœ… BUY APPROVED")
 
     position = trader.buy(
         coin,
@@ -251,7 +293,7 @@ def process_message(message):
         coin.buy_blocked_by = "Buy Execution Failed"
         database.update_signal(coin)
 
-        print("❌ Buy Failed")
+        print("âŒ Buy Failed")
         print("=" * 70)
 
         return coin
@@ -266,7 +308,7 @@ def process_message(message):
     # ======================================================
 
     print("\n==============================")
-    print("📈 TRADE OPENED")
+    print("ðŸ“ˆ TRADE OPENED")
     print("==============================")
 
     print(f"Coin           : {position.symbol}")
