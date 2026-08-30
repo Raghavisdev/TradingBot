@@ -195,7 +195,7 @@ class TestPipelineS6E2E(unittest.TestCase):
             coin = process_message(message)
             
         # Verify blocked by position sizer due to amount = 0
-        self.assertIn("Position Sizer: Final score 61.0 < 62.0", getattr(coin, 'buy_blocked_by', ''))
+        self.assertIn("Position Sizer: Final score 61.0 < 65.0", getattr(coin, 'buy_blocked_by', ''))
         
         mock_paper.buy.assert_not_called()
 

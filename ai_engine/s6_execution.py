@@ -58,23 +58,40 @@ def evaluate_s6_execution(coin: Any, portfolio: Any) -> S6ExecutionDecision | No
 
     # 2. Check Score Eligibility
     final_score = getattr(coin, "final_score", 0)
-    # LAPC-v2 rule: final_score >= 62
-    if float(final_score) < 62.0:
+    # Delay Resilience: final_score >= 65
+    if float(final_score) < 65.0:
         return S6ExecutionDecision(
             amount=0.0,
             quality=0.0,
             execution_state=state,
-            reason=f"Final score {final_score:.1f} < 62.0"
+            reason=f"Final score {final_score:.1f} < 65.0"
         )
         
-    # LAPC-v2 rule: MCx <= 2.0
-    if state.mc_multiple_from_signal is not None and state.mc_multiple_from_signal > 2.0:
+    # Delay Resilience: Liquidity >= 1000
+    if state.liquidity < 1000.0:
         return S6ExecutionDecision(
             amount=0.0,
             quality=0.0,
             execution_state=state,
-            reason=f"MCx {state.mc_multiple_from_signal:.2f} > 2.0"
+            reason=f"Liquidity {state.liquidity:.0f} < 1000"
         )
+        
+    # Delay Resilience: Momentum Filter (30s price >= 0.95 * 0s price)
+    if state.mc_multiple_from_signal is not None:
+        if state.mc_multiple_from_signal < 0.95:
+            return S6ExecutionDecision(
+                amount=0.0,
+                quality=0.0,
+                execution_state=state,
+                reason=f"Momentum decay: MCx {state.mc_multiple_from_signal:.3f} < 0.95"
+            )
+        if state.mc_multiple_from_signal > 2.0:
+            return S6ExecutionDecision(
+                amount=0.0,
+                quality=0.0,
+                execution_state=state,
+                reason=f"MCx {state.mc_multiple_from_signal:.2f} > 2.0"
+            )
 
     # Check Portfolio Equity bounds
     total_equity = float(getattr(portfolio, "total_equity", 0))

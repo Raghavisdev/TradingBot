@@ -5,7 +5,6 @@ from datetime import datetime
 from collectors.live_market import update_market
 from ai_engine.market_health import calculate_market_health
 from ai_engine.exit_ai import get_exit_decision
-from ai_engine.s6_canonical_exit import evaluate_s6_exit
 from trading.position import Position
 from database.database import database
 
@@ -249,17 +248,7 @@ class TradeManager:
             # Exit AI
             # ------------------------------------------
             
-            strat_id = getattr(position, "strategy_id", "")
-            if strat_id == "S6_Moonshot_Ladder":
-                action, pct_sell, reason = evaluate_s6_exit(position, position.current_price)
-                confidence = 100 if action != "HOLD" else 0
-                
-                # If canonical exit returns a SELL_PCT action, we must route it 
-                # to the paper_trader correctly. Since paper_trader uses standard action strings:
-                if action == "SELL_PCT":
-                    action = f"SELL_{int(pct_sell)}"
-            else:
-                action, confidence, reason = get_exit_decision(position)
+            action, confidence, reason = get_exit_decision(position)
 
             position.exit_action     = action
             position.exit_confidence = confidence
