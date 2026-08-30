@@ -247,7 +247,7 @@ def process_message(message):
     if vnext_mode in ["PAPER", "LIVE"]:
         from ai_engine.s6_vnext.entry import vnext_get_position_size
         amount = vnext_get_position_size(coin, portfolio)
-    else:
+    elif vnext_mode == "SHADOW":
         from ai_engine.s6_production_entry import evaluate_s6_production_entry
         production_entry = evaluate_s6_production_entry(coin, portfolio)
         amount = (
@@ -255,10 +255,16 @@ def process_message(message):
             if production_entry.decision is not None
             else 0.0
         )
+    else:
+        amount = get_position_size(coin, portfolio)
 
     if amount <= 0:
         print(f"\n❌ Position Sizer Rejected Trade")
-        reason = production_entry.reason if 'production_entry' in locals() else 'Position Sizer'
+        reason = (
+            production_entry.reason
+            if "production_entry" in locals()
+            else "Position Sizer"
+        )
         coin.buy_blocked_by = f"Position Sizer: {reason}"
         database.update_signal(coin)
         print("=" * 70)
