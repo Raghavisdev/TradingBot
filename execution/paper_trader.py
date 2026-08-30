@@ -1,4 +1,4 @@
-﻿import time
+import time
 import logging
 from datetime import datetime
 
@@ -126,6 +126,14 @@ class PaperTrader:
                 "[PAPER BUY] Trade rejected. S6 deployed ($%.2f) + required ($%.2f) exceeds $35 cap.",
                 s6_deployed, total_cash_required
             )
+            return None
+
+        # LAPC-v2 MCx strict safety gate
+        strategy_id = getattr(coin, "strategy_id", "S6_Moonshot_Ladder")
+        from ai_engine.validator import validate_s6_execution
+        is_valid_s6, s6_reason = validate_s6_execution(coin, strategy_id)
+        if not is_valid_s6:
+            logger.warning("[PAPER BUY] Trade rejected. %s", s6_reason)
             return None
 
         position = Position()

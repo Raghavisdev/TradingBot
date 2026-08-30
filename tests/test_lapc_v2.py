@@ -1,4 +1,4 @@
-﻿import unittest
+import unittest
 import time
 import uuid
 from database.database import database
@@ -115,10 +115,61 @@ class TestLAPCV2(unittest.TestCase):
         self.assertEqual(pos.invested_amount, 2.0)
         self.assertEqual(pos.scale_in_completed, 1)
 
-    def test_6_mcx_gt_2_reject(self):
-        c = self._mock_coin(65, live_mc=250000, signal_mc=100000) # MCx = 2.5
-        size = get_position_size(c, self.portfolio)
-        self.assertEqual(size, 0.0)
+    def test_6_mcx_1_0_accepted(self):
+        c = self._mock_coin(65, live_mc=100000, signal_mc=100000)
+        pos = self.trader.buy(c, 2.0)
+        self.assertIsNotNone(pos)
+
+    def test_6_mcx_1_99_accepted(self):
+        c = self._mock_coin(65, live_mc=199000, signal_mc=100000)
+        pos = self.trader.buy(c, 2.0)
+        self.assertIsNotNone(pos)
+
+    def test_6_mcx_2_00_accepted(self):
+        c = self._mock_coin(65, live_mc=200000, signal_mc=100000)
+        pos = self.trader.buy(c, 2.0)
+        self.assertIsNotNone(pos)
+
+    def test_6_mcx_2_01_rejected(self):
+        c = self._mock_coin(65, live_mc=201000, signal_mc=100000)
+        pos = self.trader.buy(c, 2.0)
+        self.assertIsNone(pos)
+
+    def test_6_mcx_2_50_rejected(self):
+        c = self._mock_coin(65, live_mc=250000, signal_mc=100000)
+        pos = self.trader.buy(c, 2.0)
+        self.assertIsNone(pos)
+
+    def test_6_missing_signal_mc_rejected(self):
+        c = self._mock_coin(65)
+        c.signal_market_cap = None
+        pos = self.trader.buy(c, 2.0)
+        self.assertIsNone(pos)
+
+    def test_6_zero_signal_mc_rejected(self):
+        c = self._mock_coin(65)
+        c.signal_market_cap = 0
+        pos = self.trader.buy(c, 2.0)
+        self.assertIsNone(pos)
+
+    def test_6_missing_execution_mc_rejected(self):
+        c = self._mock_coin(65)
+        c.live_market_cap = None
+        pos = self.trader.buy(c, 2.0)
+        self.assertIsNone(pos)
+
+    def test_6_vnext_sizing_path_rejected(self):
+        # Even if pipeline bypasses position_sizer and hands PaperTrader $4.26, it should be rejected
+        c = self._mock_coin(65, live_mc=250000, signal_mc=100000)
+        pos = self.trader.buy(c, 4.26)
+        self.assertIsNone(pos)
+
+    def test_6_non_s6_unaffected(self):
+        # non-S6 strategies bypass MCx checks
+        c = self._mock_coin(65, live_mc=250000, signal_mc=100000)
+        c.strategy_id = "S5_Momentum"
+        pos = self.trader.buy(c, 2.0)
+        self.assertIsNotNone(pos)
 
     def test_7_max_deployed_35(self):
         # We need to simulate deploying up to \

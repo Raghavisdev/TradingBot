@@ -1,4 +1,4 @@
-﻿import os
+import os
 import config
 
 
@@ -28,12 +28,10 @@ def get_s6_base_size(coin):
     if final_score < 62:
         return 0.0
 
-    # MCx filter
-    if getattr(coin, "signal_market_cap", 0) and getattr(coin, "live_market_cap", 0):
-        if coin.signal_market_cap > 0:
-            mcx = coin.live_market_cap / coin.signal_market_cap
-            if mcx > 2.0:
-                return 0.0
+    from ai_engine.validator import validate_s6_execution
+    is_valid_s6, s6_reason = validate_s6_execution(coin)
+    if not is_valid_s6:
+        return 0.0
 
     return 2.0
 

@@ -65,3 +65,30 @@ def validate_coin(coin: Coin):
         )
 
     return coin
+
+
+def validate_s6_execution(coin, strategy_id="S6_Moonshot_Ladder"):
+    """
+    Validates execution constraints for S6_Moonshot_Ladder.
+    Fails closed if data is missing or MCx > 2.0.
+
+    Returns: (is_valid: bool, reason: str)
+    """
+    if strategy_id != "S6_Moonshot_Ladder":
+        return True, "Not S6"
+
+    sig_mc = getattr(coin, "signal_market_cap", 0)
+    live_mc = getattr(coin, "live_market_cap", 0)
+
+    if not sig_mc or float(sig_mc) <= 0:
+        return False, "Missing or invalid signal market cap"
+
+    if not live_mc or float(live_mc) <= 0:
+        return False, "Missing or invalid live market cap"
+
+    mcx = float(live_mc) / float(sig_mc)
+
+    if mcx > 2.0:
+        return False, f"MCx ({mcx:.2f}) > 2.0"
+
+    return True, f"MCx ({mcx:.2f}) <= 2.0"
