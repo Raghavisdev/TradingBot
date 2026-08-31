@@ -58,23 +58,15 @@ def evaluate_s6_execution(coin: Any, portfolio: Any) -> S6ExecutionDecision | No
 
     # 2. Check Score Eligibility
     final_score = getattr(coin, "final_score", 0)
-    # LAPC-v2 rule: final_score >= 62
-    if float(final_score) < 62.0:
+    # LAPC-v2 rule: final_score >= 60
+    if float(final_score) < 60.0:
         return S6ExecutionDecision(
             amount=0.0,
             quality=0.0,
             execution_state=state,
-            reason=f"Final score {final_score:.1f} < 62.0"
+            reason=f"Final score {final_score:.1f} < 60.0"
         )
         
-    # LAPC-v2 rule: MCx <= 2.0
-    if state.mc_multiple_from_signal is not None and state.mc_multiple_from_signal > 2.0:
-        return S6ExecutionDecision(
-            amount=0.0,
-            quality=0.0,
-            execution_state=state,
-            reason=f"MCx {state.mc_multiple_from_signal:.2f} > 2.0"
-        )
 
     # Check Portfolio Equity bounds
     total_equity = float(getattr(portfolio, "total_equity", 0))

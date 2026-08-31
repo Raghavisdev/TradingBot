@@ -1,4 +1,4 @@
-﻿import time
+import time
 import logging
 from datetime import datetime
 
@@ -199,39 +199,8 @@ class TradeManager:
             position.buy_ratio_history    = position.buy_ratio_history[-30:]
 
             # ------------------------------------------
-            # LAPC-v2 SMART SCALE-IN (S6_Moonshot_Ladder)
+            # LAPC-v2 SMART SCALE-IN (REMOVED FOR S6 BASELINE)
             # ------------------------------------------
-
-            if getattr(position, "strategy_id", "") == "S6_Moonshot_Ladder":
-                scale_in_completed = getattr(position, "scale_in_completed", 1)
-                probe_entry_time = getattr(position, "probe_entry_time", 0.0)
-
-                # We only count snapshots where time.time() > probe_entry_time, ensuring it's strictly post-probe
-                if scale_in_completed == 0 and probe_entry_time > 0 and time.time() > probe_entry_time:
-                    position.post_probe_snapshot_count = getattr(position, "post_probe_snapshot_count", 0) + 1
-
-                    if position.post_probe_snapshot_count >= 3:
-                        final_score = getattr(position, "final_score", 0)
-                        mc_change = (position.current_market_cap - position.probe_entry_market_cap) / position.probe_entry_market_cap if getattr(position, "probe_entry_market_cap", 0.0) > 0 else -1
-
-                        if final_score >= 65 and mc_change >= -0.10:
-                            scale_amount = 5.0
-                            print(f"LAPC-v2 SCALE-IN TRIGGERED for {position.symbol}. MC change: {mc_change*100:.2f}%")
-
-                            # The paper_trader.scale_in() method inherently enforces the $35 deployment cap limit.
-                            # It sets scale_in_completed = 1 via DB if successful.
-                            # But if the trader rejects it (e.g. not enough cash, or cap reached), we should still mark it as completed to prevent endless re-attempts.
-                            success = self.trader.scale_in(position, scale_amount)
-                            position.scale_in_completed = 1
-                            if not success:
-                                print(f"LAPC-v2 SCALE-IN FAILED for {position.symbol} (rejected by executor)")
-                            database.update_probe_state(position.trade_id, position.scale_in_completed, position.post_probe_snapshot_count)
-                        else:
-                            position.scale_in_completed = 1
-                            print(f"LAPC-v2 SCALE-IN REJECTED for {position.symbol}. Score {final_score}, MC change {mc_change*100:.2f}%")
-                            database.update_probe_state(position.trade_id, position.scale_in_completed, position.post_probe_snapshot_count)
-                    else:
-                        database.update_probe_state(position.trade_id, position.scale_in_completed, position.post_probe_snapshot_count)
 
             # ------------------------------------------
             # Persist MFE / MAE (non-blocking, best-effort)
@@ -247,7 +216,7 @@ class TradeManager:
             # ------------------------------------------
             # Exit AI
             # ------------------------------------------
-
+            
             action, confidence, reason = get_exit_decision(position)
 
             position.exit_action     = action
@@ -279,13 +248,8 @@ class TradeManager:
                         exit_reason=reason,
                     )
 
-            elif action in {
-                "SELL_70",
-                "SELL_40",
-                "SELL_20",
-                "SELL_15",
-            }:
-
+            elif action.startswith("SELL_") and action != "SELL_ALL":
+                
                 # Prevent the same AI exit action from being
                 # executed repeatedly on consecutive update cycles.
                 executed_actions = getattr(
@@ -299,83 +263,26 @@ class TradeManager:
                     print(
                         "EXIT ACTION SKIPPED:",
                         action,
-                        "already executed for this position.",
+                        "(Already Executed)",
                     )
-
-                elif position.remaining_percent <= 0:
-
-                    print(
-                        "EXIT ACTION SKIPPED:",
-                        action,
-                        "position already fully sold.",
-                    )
-
                 else:
 
-                    percent = {
-                        "SELL_70": 70,
-                        "SELL_40": 40,
-                        "SELL_20": 20,
-                        "SELL_15": 15,
-                    }[action]
-
-                    previous_remaining = (
-                        position.remaining_percent
-                    )
-
                     try:
+                        pct_to_sell = float(action.split("_")[1])
+                    except:
+                        pct_to_sell = 0.0
 
-                        result = self.trader.partial_sell(
+                    if pct_to_sell > 0:
+                        success = self.trader.partial_sell(
                             position,
-                            percent,
+                            percent=pct_to_sell,
                             exit_reason=reason,
                         )
-
-                        # Only mark the action as executed if
-                        # the sell operation reports success.
-                        if result is not False:
-
+                        if success:
                             executed_actions.add(action)
+                            position.executed_exit_actions = executed_actions
 
-                            position.executed_exit_actions = (
-                                executed_actions
-                            )
 
-                            print(
-                                "EXIT ACTION EXECUTED:",
-                                action,
-                                "|",
-                                f"Remaining: "
-                                f"{position.remaining_percent}%",
-                            )
-
-                        else:
-
-                            print(
-                                "EXIT ACTION FAILED:",
-                                action,
-                                "| Action remains retryable.",
-                            )
-
-                    except Exception as exc:
-
-                        print(
-                            "EXIT ACTION ERROR:",
-                            action,
-                            "|",
-                            exc,
-                        )
-
-                        # Do not mark failed actions as executed.
-                        position.remaining_percent = max(
-                            0,
-                            position.remaining_percent,
-                        )
-
-                        print(
-                            "Previous remaining:",
-                            previous_remaining,
-                        )
 
     # ==================================================
     # RUN FOREVER

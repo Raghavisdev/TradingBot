@@ -30,12 +30,12 @@ from intelligence.runner import intelligence_runner
 LIVE_TRADING = os.getenv("LIVE_TRADING", "False").lower() in ("true", "1", "yes")
 
 if LIVE_TRADING:
-    print("ðŸš€ LIVE TRADING IS ENABLED")
+    print("[LIVE] LIVE TRADING IS ENABLED")
     WALLET_PUBKEY = os.getenv("WALLET_PUBLIC_KEY", "MOCK_WALLET_PUBLIC_KEY_FOR_TESTING")
     portfolio = LivePortfolio(WALLET_PUBKEY)
     trader = LiveTrader(portfolio)
 else:
-    print("ðŸ§ª PAPER TRADING IS ENABLED")
+    print("[PAPER] PAPER TRADING IS ENABLED")
     portfolio = Portfolio()
     trader = PaperTrader(portfolio)
 
@@ -73,7 +73,7 @@ manager_thread.start()
 def process_message(message):
 
     print("\n" + "=" * 70)
-    print("ðŸš€ PROCESSING NEW SIGNAL")
+    print("[SIGNAL] PROCESSING NEW SIGNAL")
     print("=" * 70)
 
     # ======================================================
@@ -89,7 +89,7 @@ def process_message(message):
 
     if coin is None:
 
-        print("âŒ Invalid Signal")
+        print("[SKIP] Invalid Signal")
 
         return None
 
@@ -116,9 +116,9 @@ def process_message(message):
 
     intelligence_runner.collect(coin)
 
-    print("âœ… Signal Parsed")
-    print("ðŸ’¾ Signal Saved")
-    print("ðŸ“¡ Tracking Started")
+    print("[OK] Signal Parsed")
+    print("[OK] Signal Saved")
+    print("[OK] Tracking Started")
 
     # ======================================================
     # COLLECT LIVE MARKET DATA
@@ -210,8 +210,8 @@ def process_message(message):
     # ======================================================
 
     # LAPC-v2 S6 Override:
-    # For S6 specifically, probe eligibility is lowered to final_score >= 62.
-    if coin.decision not in ["BUY", "STRONG BUY"] and getattr(coin, "final_score", 0) >= 62:
+    # For S6 specifically, probe eligibility is final_score >= 60.
+    if coin.decision not in ["BUY", "STRONG BUY"] and getattr(coin, "final_score", 0) >= 60:
         coin.decision = "BUY"
 
     if coin.decision not in ["BUY", "STRONG BUY"]:
@@ -219,8 +219,8 @@ def process_message(message):
         coin.buy_blocked_by = "AI Decision"
         database.update_signal(coin)
 
-        print("\nâŒ AI Rejected Trade")
-        print("ðŸ“¡ Signal will continue to be tracked.")
+        print("\n[SKIP] AI Rejected Trade")
+        print("[INFO] Signal will continue to be tracked.")
         print("=" * 70)
 
         return coin
@@ -234,7 +234,7 @@ def process_message(message):
         coin.buy_blocked_by = "Duplicate Position"
         database.update_signal(coin)
 
-        print("\nâš  Already Holding This Coin")
+        print("\n[SKIP] Already Holding This Coin")
         print("=" * 70)
 
         return coin
@@ -259,7 +259,7 @@ def process_message(message):
         amount = get_position_size(coin, portfolio)
 
     if amount <= 0:
-        print(f"\n❌ Position Sizer Rejected Trade")
+        print(f"\n[SKIP] Position Sizer Rejected Trade")
         reason = (
             production_entry.reason
             if "production_entry" in locals()
@@ -280,7 +280,7 @@ def process_message(message):
         coin.buy_blocked_by = "Portfolio Risk"
         database.update_signal(coin)
 
-        print("\nâš  Portfolio Risk Manager Blocked Trade")
+        print("\n[SKIP] Portfolio Risk Manager Blocked Trade")
         print("Reason : Max Positions / Cash Reserve")
         print("=" * 70)
 
@@ -290,7 +290,7 @@ def process_message(message):
     # EXECUTE PAPER BUY
     # ======================================================
 
-    print("\nâœ… BUY APPROVED")
+    print("\n[BUY] BUY APPROVED")
 
     position = trader.buy(
         coin,
@@ -302,7 +302,7 @@ def process_message(message):
         coin.buy_blocked_by = "Buy Execution Failed"
         database.update_signal(coin)
 
-        print("âŒ Buy Failed")
+        print("[FAIL] Buy Failed")
         print("=" * 70)
 
         return coin
@@ -317,7 +317,7 @@ def process_message(message):
     # ======================================================
 
     print("\n==============================")
-    print("ðŸ“ˆ TRADE OPENED")
+    print("[OK] TRADE OPENED")
     print("==============================")
 
     print(f"Coin           : {position.symbol}")

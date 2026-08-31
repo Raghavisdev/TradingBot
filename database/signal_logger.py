@@ -55,11 +55,15 @@ class SignalLogger:
                 buy_blocked_by,
                 tracking_started,
                 tracking_completed,
-                decision_reason
+                decision_reason,
+                execution_timestamp,
+                execution_price,
+                execution_liquidity,
+                execution_delay_seconds
 
             )
 
-            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 
             """, (
 
@@ -80,7 +84,11 @@ class SignalLogger:
                 getattr(coin, "buy_blocked_by", ""),
                 getattr(coin, "tracking_started", 0),
                 getattr(coin, "tracking_finished", 0),
-                decision_reason
+                decision_reason,
+                getattr(coin, "execution_rechecked_at", 0),
+                getattr(coin, "execution_price", 0),
+                getattr(coin, "execution_liquidity", 0),
+                getattr(coin, "signal_to_execution_seconds", 0)
 
             ))
 

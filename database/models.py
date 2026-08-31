@@ -62,7 +62,15 @@ def create_tables():
 
             tracking_completed REAL,
 
-            decision_reason TEXT
+            decision_reason TEXT,
+            
+            execution_timestamp REAL,
+            
+            execution_price REAL,
+            
+            execution_liquidity REAL,
+            
+            execution_delay_seconds REAL
 
         )
 
@@ -155,6 +163,20 @@ def create_tables():
             except Exception:
                 pass  # Column already exists
 
+        # Add telemetry columns to signals if they don't exist
+        new_signal_columns = [
+            "ALTER TABLE signals ADD COLUMN execution_timestamp REAL",
+            "ALTER TABLE signals ADD COLUMN execution_price REAL",
+            "ALTER TABLE signals ADD COLUMN execution_liquidity REAL",
+            "ALTER TABLE signals ADD COLUMN execution_delay_seconds REAL"
+        ]
+        
+        for stmt in new_signal_columns:
+            try:
+                cursor.execute(stmt)
+            except Exception:
+                pass
+                
         # ======================================================
         # TRADES
         # ======================================================
