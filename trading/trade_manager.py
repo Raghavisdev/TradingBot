@@ -7,7 +7,7 @@ from ai_engine.market_health import calculate_market_health
 from ai_engine.exit_ai import get_exit_decision
 from trading.position import Position
 from database.database import database
-from config import S6_CANDIDATE_MODE
+from database.database import database
 import os
 
 try:
@@ -236,7 +236,7 @@ class TradeManager:
             confidence = 0.0
             reason = ""
             
-            if S6_CANDIDATE_MODE and getattr(position, "strategy_id", "") == "S6_Moonshot_Ladder":
+            if getattr(position, "strategy_id", "") == "S6_Moonshot_Ladder":
                 # Initialize state if not present
                 if not hasattr(position, 's6_state'):
                     position.s6_state = 'NORMAL'
@@ -274,6 +274,10 @@ class TradeManager:
                     action = "SELL_ALL"
                     confidence = 100.0
                     reason = f"S6 {position.s6_state} TRAIL BREAK: Price {current_price:.6f} <= Stop {position.s6_stop_price:.6f}"
+                else:
+                    action = "HOLD"
+                    confidence = 0.0
+                    reason = ""
             
             if action is None:
                 action, confidence, reason = get_exit_decision(position)

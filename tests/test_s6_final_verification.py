@@ -50,7 +50,7 @@ class TestS6FinalVerification(unittest.TestCase):
         )
         
     @patch('ai_engine.s6_execution.recheck_market')
-    @patch('config.S6_CANDIDATE_MODE', True)
+    @patch('config.S6_CANDIDATE_MODE', False)
     def test_01_score_55_accepted(self, mock_recheck):
         mock_recheck.return_value = self.mock_state
         coin = DummyCoin(score=55.0)
@@ -59,7 +59,7 @@ class TestS6FinalVerification(unittest.TestCase):
         self.assertNotIn("Final score", decision.reason)
         
     @patch('ai_engine.s6_execution.recheck_market')
-    @patch('config.S6_CANDIDATE_MODE', True)
+    @patch('config.S6_CANDIDATE_MODE', False)
     def test_02_score_54_99_rejected(self, mock_recheck):
         mock_recheck.return_value = self.mock_state
         coin = DummyCoin(score=54.99)
@@ -68,7 +68,7 @@ class TestS6FinalVerification(unittest.TestCase):
         self.assertIn("Final score", decision.reason)
         
     @patch('ai_engine.s6_execution.recheck_market')
-    @patch('config.S6_CANDIDATE_MODE', True)
+    @patch('config.S6_CANDIDATE_MODE', False)
     def test_03_negative_zero_edge_rejected(self, mock_recheck):
         mock_recheck.return_value = self.mock_state
         coin = DummyCoin(score=78.0) # p_win is explicitly set to 0.16 -> net_edge < 0
@@ -77,7 +77,7 @@ class TestS6FinalVerification(unittest.TestCase):
         self.assertIn("Expected net edge <= 0", decision.reason)
 
     @patch('ai_engine.s6_execution.recheck_market')
-    @patch('config.S6_CANDIDATE_MODE', True)
+    @patch('config.S6_CANDIDATE_MODE', False)
     def test_04_adaptive_sizing_bounds(self, mock_recheck):
         from dataclasses import replace
         mock_recheck.return_value = replace(self.mock_state, liquidity=150.0) # 2% cap = 3.0
@@ -85,7 +85,6 @@ class TestS6FinalVerification(unittest.TestCase):
         decision = evaluate_s6_execution(coin, self.portfolio)
         self.assertEqual(decision.amount, 3.0) # bounded by liquidity cap
 
-    @patch('trading.trade_manager.S6_CANDIDATE_MODE', True)
     @patch('trading.trade_manager.update_market')
     @patch('trading.trade_manager.calculate_market_health', return_value=(50, {}))
     @patch('trading.trade_manager.get_exit_decision', return_value=("HOLD", 0.0, ""))
@@ -128,7 +127,6 @@ class TestS6FinalVerification(unittest.TestCase):
         tm.update()
         self.assertAlmostEqual(pos.s6_stop_price, 15.4, places=2) # Retained high stop
         
-    @patch('trading.trade_manager.S6_CANDIDATE_MODE', True)
     @patch('trading.trade_manager.update_market')
     @patch('trading.trade_manager.calculate_market_health', return_value=(50, {}))
     @patch('trading.trade_manager.get_exit_decision', return_value=("HOLD", 0.0, ""))

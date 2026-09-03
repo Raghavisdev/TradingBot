@@ -26,7 +26,7 @@ class TestS6CandidateSizing(unittest.TestCase):
         self.mock_state.mc_multiple_from_signal = 1.0
         
     @patch('ai_engine.s6_execution.recheck_market')
-    @patch('config.S6_CANDIDATE_MODE', True)
+    @patch('config.S6_CANDIDATE_MODE', False)
     def test_base_sizing(self, mock_recheck):
         mock_recheck.return_value = self.mock_state
         self.mock_portfolio.total_equity = 100.0
@@ -37,7 +37,7 @@ class TestS6CandidateSizing(unittest.TestCase):
         self.assertAlmostEqual(decision.amount, 3.508, places=2) # 100 * 3.508%
 
     @patch('ai_engine.s6_execution.recheck_market')
-    @patch('config.S6_CANDIDATE_MODE', True)
+    @patch('config.S6_CANDIDATE_MODE', False)
     def test_liquidity_cap(self, mock_recheck):
         self.mock_state.liquidity = 150 # 2% is 3.0
         mock_recheck.return_value = self.mock_state
@@ -48,7 +48,7 @@ class TestS6CandidateSizing(unittest.TestCase):
         self.assertEqual(decision.amount, 3.0)
         
     @patch('ai_engine.s6_execution.recheck_market')
-    @patch('config.S6_CANDIDATE_MODE', True)
+    @patch('config.S6_CANDIDATE_MODE', False)
     def test_portfolio_exposure_cap(self, mock_recheck):
         mock_recheck.return_value = self.mock_state
         self.mock_portfolio.total_equity = 100.0
@@ -63,7 +63,7 @@ class TestS6CandidateSizing(unittest.TestCase):
         self.assertEqual(decision.amount, 3.0) # 50 - 47 = 3.0 available
         
     @patch('ai_engine.s6_execution.recheck_market')
-    @patch('config.S6_CANDIDATE_MODE', True)
+    @patch('config.S6_CANDIDATE_MODE', False)
     def test_min_trade(self, mock_recheck):
         self.mock_state.liquidity = 50 # 2% is 1.0
         mock_recheck.return_value = self.mock_state
@@ -74,7 +74,7 @@ class TestS6CandidateSizing(unittest.TestCase):
         self.assertEqual(decision.amount, 1.0)
         
     @patch('ai_engine.s6_execution.recheck_market')
-    @patch('config.S6_CANDIDATE_MODE', True)
+    @patch('config.S6_CANDIDATE_MODE', False)
     def test_cash_reserve(self, mock_recheck):
         mock_recheck.return_value = self.mock_state
         self.mock_portfolio.total_equity = 100.0
@@ -86,7 +86,7 @@ class TestS6CandidateSizing(unittest.TestCase):
         self.assertIn("Insufficient reserve", decision.reason)
         
     @patch('ai_engine.s6_execution.recheck_market')
-    @patch('config.S6_CANDIDATE_MODE', True)
+    @patch('config.S6_CANDIDATE_MODE', False)
     def test_drawdown_breaker(self, mock_recheck):
         mock_recheck.return_value = self.mock_state
         self.mock_portfolio.total_equity = 80.0
@@ -97,7 +97,7 @@ class TestS6CandidateSizing(unittest.TestCase):
         self.assertIn("Portfolio DD 20.0%", decision.reason)
 
     @patch('ai_engine.s6_execution.recheck_market')
-    @patch('config.S6_CANDIDATE_MODE', True)
+    @patch('config.S6_CANDIDATE_MODE', False)
     def test_conditional_edge_negative(self, mock_recheck):
         self.mock_coin.final_score = 75.0 # p_win = 0.167 => negative edge
         mock_recheck.return_value = self.mock_state
@@ -109,7 +109,7 @@ class TestS6CandidateSizing(unittest.TestCase):
         self.assertIn("Expected net edge <= 0", decision.reason)
 
     @patch('ai_engine.s6_execution.recheck_market')
-    @patch('config.S6_CANDIDATE_MODE', True)
+    @patch('config.S6_CANDIDATE_MODE', False)
     def test_conditional_sizing_separation(self, mock_recheck):
         mock_recheck.return_value = self.mock_state
         self.mock_portfolio.total_equity = 1000.0

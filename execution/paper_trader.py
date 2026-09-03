@@ -89,10 +89,7 @@ class PaperTrader:
     # =========================================================
 
     def _simulate_candidate_execution(self, base_price, side="BUY"):
-        from config import S6_CANDIDATE_MODE
         base_price = float(base_price)
-        if not S6_CANDIDATE_MODE:
-            return base_price, False, {}
             
         # For paper trading tests, we allow monkeypatching these specific attributes on self
         # to deterministically trigger failures.
@@ -145,7 +142,6 @@ class PaperTrader:
             return None
 
         # CANDIDATE EXECUTION SIMULATION
-        from config import S6_CANDIDATE_MODE
         exec_price, is_abort, exec_telemetry = self._simulate_candidate_execution(getattr(coin, "price", 0.0), side="BUY")
         if is_abort:
             logger.warning(f"[PAPER BUY] Trade rejected. {exec_telemetry.get('abort_reason')}")
@@ -160,12 +156,11 @@ class PaperTrader:
         commission = 0.0
         total_estimated_cost = entry_friction + network_fee + commission
         
-        if S6_CANDIDATE_MODE:
-            exec_telemetry["expected_slippage"] = entry_friction
-            exec_telemetry["network_fee"] = network_fee
-            exec_telemetry["commission"] = commission
-            exec_telemetry["total_estimated_cost"] = total_estimated_cost
-            exec_telemetry["cost_per_position"] = total_estimated_cost / amount if amount > 0 else 0
+        exec_telemetry["expected_slippage"] = entry_friction
+        exec_telemetry["network_fee"] = network_fee
+        exec_telemetry["commission"] = commission
+        exec_telemetry["total_estimated_cost"] = total_estimated_cost
+        exec_telemetry["cost_per_position"] = total_estimated_cost / amount if amount > 0 else 0
 
         total_cash_required = amount + entry_friction
 
@@ -214,9 +209,7 @@ class PaperTrader:
         position.strategy_id = "S6_Moonshot_Ladder"
         position.strategy_version = "1.2"
 
-        position.entry_price = float(coin.price)
-        if S6_CANDIDATE_MODE:
-            position.entry_price = exec_price
+        position.entry_price = exec_price
             
         position.entry_market_cap = float(
             coin.live_market_cap
@@ -286,8 +279,7 @@ class PaperTrader:
         position.commission = 0.0
         position.cost_mode = cost_mode
 
-        if S6_CANDIDATE_MODE:
-            position.exec_telemetry = exec_telemetry
+        position.exec_telemetry = exec_telemetry
 
         position.initialize()
 
@@ -477,22 +469,15 @@ class PaperTrader:
         # Current gross market value of the entire position.
         
         # CANDIDATE EXECUTION SIMULATION
-        from config import S6_CANDIDATE_MODE
         exec_price, is_abort, exec_telemetry = self._simulate_candidate_execution(position.current_price, side="SELL")
         if is_abort:
             logger.warning(f"[PAPER SELL] Trade rejected. {exec_telemetry.get('abort_reason')}")
             return False
             
-        if S6_CANDIDATE_MODE:
-            current_value = exec_price * position.tokens
-            if not hasattr(position, "sell_telemetries"):
-                position.sell_telemetries = []
-            position.sell_telemetries.append(exec_telemetry)
-        else:
-            current_value = (
-                position.invested_amount +
-                position.pnl_dollars
-            )
+        current_value = exec_price * position.tokens
+        if not hasattr(position, "sell_telemetries"):
+            position.sell_telemetries = []
+        position.sell_telemetries.append(exec_telemetry)
 
         gross_proceeds = (
             current_value *
@@ -627,7 +612,7 @@ class PaperTrader:
                     "failure_class": exec_telemetry.get("failure_class", "NONE"),
                     "retry_eligible": exec_telemetry.get("retry_eligibility", False),
                     "execution_result": "SUCCESS",
-                    "execution_price": exec_price if S6_CANDIDATE_MODE else position.current_price,
+                    "execution_price": exec_price,
                     "execution_source": exec_telemetry.get("execution_source", "JUPITER_QUOTE_PROXY"),
                     "fees": 0.0,
                     "slippage": exit_friction,
@@ -640,7 +625,7 @@ class PaperTrader:
                 _fwd_persistence.save_forward_exit({
                     "trade_id": position.trade_id,
                     "exit_timestamp": time.time(),
-                    "exit_price": exec_price if S6_CANDIDATE_MODE else position.current_price,
+                    "exit_price": exec_price,
                     "hwm": getattr(position, "highest_price", 0.0),
                     "trailing_threshold": getattr(position, "highest_stop_pnl_pct", 0.0),
                     "retracement": getattr(position, "highest_pnl_pct", 0.0) - getattr(position, "pnl_pct", 0.0),

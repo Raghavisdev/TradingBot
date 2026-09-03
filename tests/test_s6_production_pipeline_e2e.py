@@ -118,7 +118,7 @@ class TestPipelineS6E2E(unittest.TestCase):
         self.assertTrue(getattr(coin, 'buy_blocked_by', None) is None or "Position Sizer" not in getattr(coin, 'buy_blocked_by', ''))
         
     @patch('engine.pipeline.trader')
-    @patch('config.S6_CANDIDATE_MODE', True)
+    @patch('config.S6_CANDIDATE_MODE', False)
     def test_pipeline_amount_passed_to_execution(self, mock_trader):
         mock_paper = mock_trader
         mock_paper.buy.return_value.entry_price = 1.0
