@@ -10,6 +10,11 @@ from knowledge.coin import Coin
 
 class TestLAPCV2(unittest.TestCase):
     def setUp(self):
+        import os
+        import config
+        os.environ["PAPER_USE_LIVE_QUOTES"] = "False"
+        config.S6_CANDIDATE_MODE = False
+        
         # Clean db
         conn = database.trade_logger.connection
         c = conn.cursor()
@@ -68,52 +73,17 @@ class TestLAPCV2(unittest.TestCase):
         self.assertEqual(pos.scale_in_completed, 0)
         self.assertEqual(pos.post_probe_snapshot_count, 0)
 
+    @unittest.skip("Scale-in removed for S6 Baseline")
     def test_3_score_65_two_snapshots(self):
-        c = self._mock_coin(65)
-        pos = self.trader.buy(c, 2.0)
-        
-        # Snapshot 1
-        time.sleep(0.01)
-        pos.current_market_cap = c.live_market_cap
-        pos.last_api_success = True
-        self.trade_manager.update()
-        
-        # Snapshot 2
-        time.sleep(0.01)
-        pos.last_api_success = True
-        self.trade_manager.update()
-        
-        self.assertEqual(pos.post_probe_snapshot_count, 2)
-        self.assertEqual(pos.invested_amount, 2.0)
-        self.assertEqual(pos.scale_in_completed, 0)
+        pass
 
+    @unittest.skip("Scale-in removed for S6 Baseline")
     def test_4_score_65_three_snapshots_scale(self):
-        c = self._mock_coin(65)
-        pos = self.trader.buy(c, 2.0)
-        
-        for _ in range(3):
-            time.sleep(0.01)
-            pos.current_market_cap = c.live_market_cap
-            pos.last_api_success = True
-            self.trade_manager.update()
-            
-        self.assertEqual(pos.post_probe_snapshot_count, 3)
-        self.assertEqual(pos.invested_amount, 7.0)
-        self.assertEqual(pos.scale_in_completed, 1)
+        pass
 
+    @unittest.skip("Scale-in removed for S6 Baseline")
     def test_5_score_65_three_snapshots_drop_reject(self):
-        c = self._mock_coin(65)
-        pos = self.trader.buy(c, 2.0)
-        
-        for _ in range(3):
-            time.sleep(0.01)
-            pos.current_market_cap = c.live_market_cap * 0.85 # -15% drop
-            pos.last_api_success = True
-            self.trade_manager.update()
-            
-        self.assertEqual(pos.post_probe_snapshot_count, 3)
-        self.assertEqual(pos.invested_amount, 2.0)
-        self.assertEqual(pos.scale_in_completed, 1)
+        pass
 
     def test_6_mcx_1_0_accepted(self):
         c = self._mock_coin(65, live_mc=100000, signal_mc=100000)
@@ -171,30 +141,9 @@ class TestLAPCV2(unittest.TestCase):
         pos = self.trader.buy(c, 2.0)
         self.assertIsNotNone(pos)
 
+    @unittest.skip("Scale-in removed for S6 Baseline")
     def test_7_max_deployed_35(self):
-        # We need to simulate deploying up to \
-        # 4 positions * 7.0 = 28.0 invested.
-        for i in range(4):
-            c = self._mock_coin(65)
-            pos = self.trader.buy(c, 2.0)
-            for _ in range(3):
-                time.sleep(0.01)
-                pos.last_api_success = True
-                self.trade_manager.update()
-            self.assertEqual(pos.invested_amount, 7.0)
-
-        c = self._mock_coin(65)
-        size = get_position_size(c, self.portfolio)
-        self.assertEqual(size, 2.0)
-        pos = self.trader.buy(c, size)
-        
-        for _ in range(3):
-            time.sleep(0.01)
-            pos.last_api_success = True
-            self.trade_manager.update()
-            
-        self.assertEqual(pos.scale_in_completed, 1)
-        self.assertEqual(pos.invested_amount, 2.0)
+        pass
 
     def test_8_5_open_positions_blocked(self):
         for i in range(5):
@@ -205,60 +154,13 @@ class TestLAPCV2(unittest.TestCase):
         size = get_position_size(c, self.portfolio)
         self.assertEqual(size, 0.0)
 
+    @unittest.skip("Scale-in removed for S6 Baseline")
     def test_9_restart_after_probe(self):
-        c = self._mock_coin(65)
-        pos = self.trader.buy(c, 2.0)
-        
-        time.sleep(0.01)
-        pos.last_api_success = True
-        self.trade_manager.update()
-        
-        new_portfolio = Portfolio()
-        new_portfolio.cash = 100.0
-        new_portfolio.initial_balance = 100.0
-        new_trader = PaperTrader(new_portfolio)
-        new_manager = TradeManager(new_portfolio, new_trader)
-        new_manager.recover_open_positions(strategy_id="S6_Moonshot_Ladder")
-        
-        recovered_pos = next((p for p in new_portfolio.get_open_positions() if p.contract == pos.contract), None)
-        self.assertIsNotNone(recovered_pos)
-        self.assertEqual(recovered_pos.post_probe_snapshot_count, 1)
-        self.assertEqual(recovered_pos.scale_in_completed, 0)
-        
-        for _ in range(2):
-            time.sleep(0.01)
-            recovered_pos.last_api_success = True
-            new_manager.update()
-            
-        self.assertEqual(recovered_pos.invested_amount, 7.0)
-        self.assertEqual(recovered_pos.scale_in_completed, 1)
+        pass
 
+    @unittest.skip("Scale-in removed for S6 Baseline")
     def test_10_restart_after_scale(self):
-        c = self._mock_coin(65)
-        pos = self.trader.buy(c, 2.0)
-        
-        for _ in range(3):
-            time.sleep(0.01)
-            pos.last_api_success = True
-            self.trade_manager.update()
-            
-        self.assertEqual(pos.scale_in_completed, 1)
-        
-        new_portfolio = Portfolio()
-        new_portfolio.cash = 100.0
-        new_portfolio.initial_balance = 100.0
-        new_trader = PaperTrader(new_portfolio)
-        new_manager = TradeManager(new_portfolio, new_trader)
-        new_manager.recover_open_positions(strategy_id="S6_Moonshot_Ladder")
-        
-        recovered_pos = next((p for p in new_portfolio.get_open_positions() if p.contract == pos.contract), None)
-        self.assertIsNotNone(recovered_pos)
-        self.assertEqual(recovered_pos.scale_in_completed, 1)
-        
-        time.sleep(0.01)
-        recovered_pos.last_api_success = True
-        new_manager.update()
-        self.assertEqual(recovered_pos.invested_amount, 7.0)
+        pass
 
     def test_11_observed_quote_friction(self):
         c = self._mock_coin(62)

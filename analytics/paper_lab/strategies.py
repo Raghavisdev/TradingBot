@@ -479,10 +479,45 @@ class Strategy_S6_Moonshot_Ladder(BaseLabStrategy):
         amount = min(max(amount, 2.00), 18.00)
         amount = round(amount, 2)
 
+        requested_amount = amount
+
         # Enforce portfolio risk limits: max 8 open positions, max 15% total deployed capital limit
         can_open = portfolio.can_open_capital_aware(amount, max_deployed_pct=0.15) if hasattr(portfolio, "can_open_capital_aware") else portfolio.can_open(amount)
         if not can_open:
-            return 0.0
+            amount = 0.0
+
+        # === FORWARD LEDGER LOGGING ===
+        try:
+            import json
+            import time
+            from analytics.paper_lab.persistence import PaperLabPersistence
+            
+            sig_dict = {
+                "signal_id": sig_id,
+                "timestamp": time.time(),
+                "symbol": symbol,
+                "contract": signal.get("contract"),
+                "final_score": float(fs_val),
+                "gt_score": float(signal.get("gt_score") or 0.0),
+                "liquidity": float(signal.get("liquidity") or 0.0),
+                "buys": int(buys or 0),
+                "sells": int(sells or 0),
+                "effective_entry_mc": float(signal.get("signal_market_cap") or signal.get("snap_mc") or 0.0),
+                "current_price": float(signal.get("price", 0.0)),
+                "portfolio_equity_before": float(total_eq),
+                "cash_before": float(portfolio.cash),
+                "active_s6_exposure": float(sum(getattr(p, "invested_amount", 0.0) for p in portfolio.get_open_positions() if getattr(p, "strategy_id", "default").startswith("S6"))),
+                "requested_amount": float(requested_amount),
+                "final_amount": float(amount),
+                "all_sizing_inputs": json.dumps({"Q": Q, "base_size": base_size, "bs_ratio": bs_ratio, "dd_factor": dd_factor, "unscaled": unscaled_amount}),
+                "sizing_formula_version": "v1.2_capital_aware",
+                "experiment_id": "FORWARD_TEST_01",
+                "strategy_id": self.strategy_id
+            }
+            persistence = PaperLabPersistence()
+            persistence.save_forward_signal(sig_dict)
+        except Exception as e:
+            print(f"[FORWARD LEDGER ERROR] Failed to save signal: {e}")
 
         return amount
 
@@ -503,7 +538,7 @@ class Strategy_S6_Moonshot_Ladder(BaseLabStrategy):
         # 2. PROFIT LADDER LEVEL EVALUATION
         crossed = []
         for target_pct, orig_sell_pct in self.ladder_levels:
-            if target_pct in position.fired_ladder_levels:
+            if target_pct in getattr(position, "fired_ladder_levels", []):
                 continue
             if current_pnl >= target_pct - 1e-5:
                 crossed.append((target_pct, orig_sell_pct))
@@ -535,6 +570,13 @@ class Strategy_S6_Moonshot_Ladder(BaseLabStrategy):
                         f"Trailing Stop (peak={peak_pnl:.1f}%, now={current_pnl:.1f}%, stop={effective_stop:.1f}%)")
 
         return ("HOLD", 0, "")
+
+
+class Strategy_S6_Baseline_Forward(Strategy_S6_Moonshot_Ladder):
+    strategy_id = "S6_BASELINE_FORWARD"
+
+class Strategy_S6_Experiment_Forward(Strategy_S6_Moonshot_Ladder):
+    strategy_id = "S6_EXPERIMENT_FORWARD"
 
 
 # Legacy / Experimental Moonbag Strategy definitions
@@ -591,6 +633,8 @@ def get_initial_strategies(include_moonbag: bool = False):
         Strategy_S4(),
         Strategy_S5(),
         Strategy_S6_Moonshot_Ladder(),
+        Strategy_S6_Baseline_Forward(),
+        Strategy_S6_Experiment_Forward(),
     ]
     if include_moonbag:
         strats.extend([

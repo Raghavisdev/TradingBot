@@ -30,7 +30,7 @@ from intelligence.runner import intelligence_runner
 LIVE_TRADING = os.getenv("LIVE_TRADING", "False").lower() in ("true", "1", "yes")
 
 if LIVE_TRADING:
-    print("[LIVE] LIVE TRADING IS ENABLED")
+    raise RuntimeError("FATAL: LIVE_TRADING IS STRICTLY LOCKED FOR S6 PAPER PHASE.")
     WALLET_PUBKEY = os.getenv("WALLET_PUBLIC_KEY", "MOCK_WALLET_PUBLIC_KEY_FOR_TESTING")
     portfolio = LivePortfolio(WALLET_PUBKEY)
     trader = LiveTrader(portfolio)
@@ -134,39 +134,17 @@ def process_message(message):
     coin = analyze_fundamentals(coin)
     coin = make_decision(coin)
 
-    vnext_mode = os.getenv("S6_Moonshot_VNext_MODE", "DISABLED").upper()
-
-    print(f"[STARTUP] VNEXT MODE: {vnext_mode}")
     print(f"[STARTUP] LIVE_TRADING: {os.getenv('LIVE_TRADING', 'False')}")
     print(f"[STARTUP] ACTIVE PYTHON: {sys.executable}")
 
-    if vnext_mode != "DISABLED":
-        # vNext EVALUATION
-        from ai_engine.s6_vnext.entry import vnext_evaluate_entry
-        vnext_decision, vnext_reason = vnext_evaluate_entry(coin)
+    from ai_engine.s6_production_entry import evaluate_s6_production_entry
+    production_entry = evaluate_s6_production_entry(coin, portfolio)
 
-        if vnext_mode == "SHADOW":
-            # In shadow, we preserve legacy for production but log vNext
-            coin_legacy_decision = coin.decision
-
-            # Write to shadow comparison CSV
-            import csv
-            from pathlib import Path
-            project_root = Path(__file__).resolve().parent.parent
-            research_dir = project_root / "research"
-            research_dir.mkdir(parents=True, exist_ok=True)
-            shadow_file = str(research_dir / "phase6_shadow_comparison.csv")
-
-            file_exists = os.path.exists(shadow_file)
-            with open(shadow_file, "a", newline='') as sf:
-                writer = csv.writer(sf)
-                if not file_exists:
-                    writer.writerow(["signal_id", "timestamp", "production_decision", "vnext_decision", "reason_for_difference"])
-                writer.writerow([getattr(coin, "signal_id", "unknown"), getattr(coin, "timestamp", ""), coin_legacy_decision, vnext_decision, vnext_reason])
-
-        elif vnext_mode in ["PAPER", "LIVE"]:
-            # vNext entirely overrides legacy AI
-            coin.decision = vnext_decision
+    # FINAL S6 ARCHITECTURE overrides legacy decision
+    if production_entry.eligible:
+        coin.decision = "BUY"
+    else:
+        coin.decision = "SKIP"
 
     # ======================================================
     # UPDATE SIGNAL WITH AI RESULT
@@ -209,10 +187,7 @@ def process_message(message):
     # AI REJECTED
     # ======================================================
 
-    # LAPC-v2 S6 Override:
-    # For S6 specifically, probe eligibility is final_score >= 60.
-    if coin.decision not in ["BUY", "STRONG BUY"] and getattr(coin, "final_score", 0) >= 60:
-        coin.decision = "BUY"
+    # The legacy LAPC-v2 S6 >= 60 override has been removed.
 
     if coin.decision not in ["BUY", "STRONG BUY"]:
 
@@ -243,20 +218,11 @@ def process_message(message):
     # POSITION SIZE
     # ======================================================
 
-    vnext_mode = os.getenv("S6_Moonshot_VNext_MODE", "DISABLED").upper()
-    if vnext_mode in ["PAPER", "LIVE"]:
-        from ai_engine.s6_vnext.entry import vnext_get_position_size
-        amount = vnext_get_position_size(coin, portfolio)
-    elif vnext_mode == "SHADOW":
-        from ai_engine.s6_production_entry import evaluate_s6_production_entry
-        production_entry = evaluate_s6_production_entry(coin, portfolio)
-        amount = (
-            production_entry.decision.amount
-            if production_entry.decision is not None
-            else 0.0
-        )
-    else:
-        amount = get_position_size(coin, portfolio)
+    amount = (
+        production_entry.decision.amount
+        if production_entry.decision is not None
+        else 0.0
+    )
 
     if amount <= 0:
         print(f"\n[SKIP] Position Sizer Rejected Trade")

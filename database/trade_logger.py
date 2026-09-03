@@ -1,4 +1,4 @@
-﻿"""
+"""
 Trade Logger
 ------------
 
@@ -667,44 +667,71 @@ class TradeLogger:
                 ),
             )
 
-            cursor.execute(
-                """
-                UPDATE paper_trades
-                   SET remaining_pct = ?,
-                       realized_pnl = ?,
-                       fees = ?,
-                       slippage = ?,
-                       mfe = ?,
-                       mae = ?,
-                       updated_at = ?
-                 WHERE trade_id = ?
-                """,
-                (
-                    new_remaining,
-
-                    net_realized,
-
-                    total_fees,
-
-                    total_slippage,
-
-                    getattr(
-                        position,
-                        "mfe",
-                        0.0,
+            if new_remaining <= 0.0001:
+                realized_pct = (net_realized / invested * 100.0) if invested > 0 else 0.0
+                cursor.execute(
+                    """
+                    UPDATE paper_trades
+                       SET status = 'CLOSED',
+                           remaining_pct = 0.0,
+                           realized_pnl = ?,
+                           realized_pct = ?,
+                           exit_time = ?,
+                           exit_price = ?,
+                           exit_market_cap = ?,
+                           exit_reason = ?,
+                           fees = ?,
+                           slippage = ?,
+                           cost_mode = ?,
+                           network_fee = ?,
+                           commission = ?,
+                           mfe = ?,
+                           mae = ?,
+                           updated_at = ?
+                     WHERE trade_id = ?
+                    """,
+                    (
+                        net_realized,
+                        realized_pct,
+                        now,
+                        getattr(position, "current_price", 0.0),
+                        sell_mc,
+                        exit_reason,
+                        total_fees,
+                        total_slippage,
+                        cost_mode,
+                        float(network_fee or 0.0),
+                        float(commission or 0.0),
+                        getattr(position, "mfe", 0.0),
+                        getattr(position, "mae", 0.0),
+                        now,
+                        trade_id,
                     ),
-
-                    getattr(
-                        position,
-                        "mae",
-                        0.0,
+                )
+            else:
+                cursor.execute(
+                    """
+                    UPDATE paper_trades
+                       SET remaining_pct = ?,
+                           realized_pnl = ?,
+                           fees = ?,
+                           slippage = ?,
+                           mfe = ?,
+                           mae = ?,
+                           updated_at = ?
+                     WHERE trade_id = ?
+                    """,
+                    (
+                        new_remaining,
+                        net_realized,
+                        total_fees,
+                        total_slippage,
+                        getattr(position, "mfe", 0.0),
+                        getattr(position, "mae", 0.0),
+                        now,
+                        trade_id,
                     ),
-
-                    now,
-
-                    trade_id,
-                ),
-            )
+                )
 
             self.connection.commit()
 

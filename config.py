@@ -48,6 +48,10 @@ INVESTMENT_PER_TRADE = float(os.getenv("INVESTMENT_PER_TRADE", 3.0))
 MAX_OPEN_POSITIONS = int(os.getenv("MAX_OPEN_POSITIONS", 10))
 PAPER_TRADING = os.getenv("PAPER_TRADING", "True").lower() in ("true", "1", "yes")
 
+# S6 Candidate Settings
+S6_CANDIDATE_MODE = os.getenv("S6_CANDIDATE_MODE", "False").lower() in ("true", "1", "yes")
+PORTFOLIO_DRAWDOWN_LIMIT = float(os.getenv("PORTFOLIO_DRAWDOWN_LIMIT", 0.15))
+
 # ----------------------------------------------------
 # LOGGING & HEALTH MONITORING
 # ----------------------------------------------------

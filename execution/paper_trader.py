@@ -5,6 +5,12 @@ from datetime import datetime
 from trading.position import Position
 from database.database import database
 
+try:
+    from analytics.paper_lab.persistence import PaperLabPersistence
+    _fwd_persistence = PaperLabPersistence()
+except Exception:
+    _fwd_persistence = None
+
 logger = logging.getLogger("PaperTrader")
 
 
@@ -82,6 +88,51 @@ class PaperTrader:
     # BUY
     # =========================================================
 
+    def _simulate_candidate_execution(self, base_price, side="BUY"):
+        from config import S6_CANDIDATE_MODE
+        base_price = float(base_price)
+        if not S6_CANDIDATE_MODE:
+            return base_price, False, {}
+            
+        # For paper trading tests, we allow monkeypatching these specific attributes on self
+        # to deterministically trigger failures.
+        failed_attempt_1 = getattr(self, "_test_fail_attempt_1", False)
+        quote_1 = base_price
+        quote_2 = getattr(self, "_test_quote_2", base_price * 1.05) if failed_attempt_1 else None
+        
+        attempt_count = 1
+        deterioration = 0.0
+        abort_reason = ""
+        is_abort = False
+        final_price = quote_1
+        
+        if failed_attempt_1:
+            attempt_count = 2
+            if side == "BUY":
+                deterioration = (quote_2 - quote_1) / quote_1
+            else:
+                deterioration = (quote_1 - quote_2) / quote_1
+                
+            if deterioration > 0.03:
+                abort_reason = f"Deterioration {deterioration*100:.2f}% > 3%"
+                is_abort = True
+                final_price = 0.0
+            else:
+                final_price = quote_2
+                
+        telemetry = {
+            "quote_1": quote_1,
+            "quote_2": quote_2,
+            "deterioration": deterioration,
+            "failure_class": "RPC_TIMEOUT" if failed_attempt_1 else "NONE",
+            "retry_eligibility": failed_attempt_1,
+            "attempt_count": attempt_count,
+            "abort_reason": abort_reason,
+            "execution_source": "JUPITER_QUOTE_PROXY"
+        }
+        
+        return final_price, is_abort, telemetry
+
     def buy(self, coin, amount):
 
         amount = float(amount)
@@ -93,16 +144,30 @@ class PaperTrader:
             )
             return None
 
+        # CANDIDATE EXECUTION SIMULATION
+        from config import S6_CANDIDATE_MODE
+        exec_price, is_abort, exec_telemetry = self._simulate_candidate_execution(getattr(coin, "price", 0.0), side="BUY")
+        if is_abort:
+            logger.warning(f"[PAPER BUY] Trade rejected. {exec_telemetry.get('abort_reason')}")
+            return None
+
         entry_friction, network_fee, cost_mode = self._get_execution_cost(
             amount,
             getattr(coin, "contract", None),
             side="BUY"
         )
+        
+        commission = 0.0
+        total_estimated_cost = entry_friction + network_fee + commission
+        
+        if S6_CANDIDATE_MODE:
+            exec_telemetry["expected_slippage"] = entry_friction
+            exec_telemetry["network_fee"] = network_fee
+            exec_telemetry["commission"] = commission
+            exec_telemetry["total_estimated_cost"] = total_estimated_cost
+            exec_telemetry["cost_per_position"] = total_estimated_cost / amount if amount > 0 else 0
 
-        total_cash_required = (
-            amount +
-            entry_friction
-        )
+        total_cash_required = amount + entry_friction
 
         if self.portfolio.cash < total_cash_required:
             logger.warning(
@@ -150,6 +215,9 @@ class PaperTrader:
         position.strategy_version = "1.2"
 
         position.entry_price = float(coin.price)
+        if S6_CANDIDATE_MODE:
+            position.entry_price = exec_price
+            
         position.entry_market_cap = float(
             coin.live_market_cap
         )
@@ -218,6 +286,9 @@ class PaperTrader:
         position.commission = 0.0
         position.cost_mode = cost_mode
 
+        if S6_CANDIDATE_MODE:
+            position.exec_telemetry = exec_telemetry
+
         position.initialize()
 
         # Asset capital + simulated entry friction.
@@ -252,6 +323,34 @@ class PaperTrader:
         print("Cash Left         : $", round(self.portfolio.cash, 6))
         print("==============================")
         print()
+
+        # === FORWARD LEDGER EXECUTION LOGGING ===
+        if _fwd_persistence:
+            try:
+                exec_log = {
+                    "trade_id": position.trade_id,
+                    "timestamp": time.time(),
+                    "quote_1": exec_telemetry.get("quote_1"),
+                    "quote_2": exec_telemetry.get("quote_2"),
+                    "quoted_price": exec_telemetry.get("quote_1"),
+                    "executable_price": exec_telemetry.get("quote_2") if exec_telemetry.get("quote_2") else exec_telemetry.get("quote_1"),
+                    "deterioration": exec_telemetry.get("deterioration", 0.0),
+                    "attempt_count": exec_telemetry.get("attempt_count", 1),
+                    "failure_class": exec_telemetry.get("failure_class", "NONE"),
+                    "retry_eligible": exec_telemetry.get("retry_eligibility", False),
+                    "execution_result": "SUCCESS",
+                    "execution_price": position.entry_price,
+                    "execution_source": exec_telemetry.get("execution_source", "JUPITER_QUOTE_PROXY"),
+                    "fees": 0.0,
+                    "slippage": entry_friction,
+                    "network_fee": network_fee,
+                    "commission": 0.0,
+                    "experiment_id": "FORWARD_TEST_01",
+                    "strategy_id": position.strategy_id
+                }
+                _fwd_persistence.save_forward_execution(exec_log)
+            except Exception as e:
+                logger.error(f"[FORWARD LEDGER] Failed to save buy execution: {e}")
 
         return position
 
@@ -376,10 +475,24 @@ class PaperTrader:
         )
 
         # Current gross market value of the entire position.
-        current_value = (
-            position.invested_amount +
-            position.pnl_dollars
-        )
+        
+        # CANDIDATE EXECUTION SIMULATION
+        from config import S6_CANDIDATE_MODE
+        exec_price, is_abort, exec_telemetry = self._simulate_candidate_execution(position.current_price, side="SELL")
+        if is_abort:
+            logger.warning(f"[PAPER SELL] Trade rejected. {exec_telemetry.get('abort_reason')}")
+            return False
+            
+        if S6_CANDIDATE_MODE:
+            current_value = exec_price * position.tokens
+            if not hasattr(position, "sell_telemetries"):
+                position.sell_telemetries = []
+            position.sell_telemetries.append(exec_telemetry)
+        else:
+            current_value = (
+                position.invested_amount +
+                position.pnl_dollars
+            )
 
         gross_proceeds = (
             current_value *
@@ -427,6 +540,12 @@ class PaperTrader:
             percent,
         )
 
+        is_closing = position.remaining_percent <= 0.0001
+        if is_closing:
+            position.remaining_percent = 0.0
+            position.sold_percent = 100.0
+            position.status = "CLOSED"
+
         position.realized_proceeds += net_proceeds
         position.realized_cost += slice_cost
         position.exit_slippage += exit_friction
@@ -466,6 +585,8 @@ class PaperTrader:
                     "DB persist failed for %s",
                     position.symbol,
                 )
+            elif is_closing:
+                self.portfolio.close_position(position)
         except Exception as exc:
             logger.error(
                 "[PAPER PARTIAL SELL] "
@@ -490,6 +611,54 @@ class PaperTrader:
         print("Cash Balance      : $", round(self.portfolio.cash, 6))
         print("==============================")
         print()
+
+        # === FORWARD LEDGER EXECUTION & EXIT LOGGING ===
+        if _fwd_persistence:
+            try:
+                _fwd_persistence.save_forward_execution({
+                    "trade_id": position.trade_id,
+                    "timestamp": time.time(),
+                    "quote_1": exec_telemetry.get("quote_1"),
+                    "quote_2": exec_telemetry.get("quote_2"),
+                    "quoted_price": exec_telemetry.get("quote_1"),
+                    "executable_price": exec_telemetry.get("quote_2") if exec_telemetry.get("quote_2") else exec_telemetry.get("quote_1"),
+                    "deterioration": exec_telemetry.get("deterioration", 0.0),
+                    "attempt_count": exec_telemetry.get("attempt_count", 1),
+                    "failure_class": exec_telemetry.get("failure_class", "NONE"),
+                    "retry_eligible": exec_telemetry.get("retry_eligibility", False),
+                    "execution_result": "SUCCESS",
+                    "execution_price": exec_price if S6_CANDIDATE_MODE else position.current_price,
+                    "execution_source": exec_telemetry.get("execution_source", "JUPITER_QUOTE_PROXY"),
+                    "fees": 0.0,
+                    "slippage": exit_friction,
+                    "network_fee": network_fee,
+                    "commission": 0.0,
+                    "experiment_id": "FORWARD_TEST_01",
+                    "strategy_id": position.strategy_id
+                })
+
+                _fwd_persistence.save_forward_exit({
+                    "trade_id": position.trade_id,
+                    "exit_timestamp": time.time(),
+                    "exit_price": exec_price if S6_CANDIDATE_MODE else position.current_price,
+                    "hwm": getattr(position, "highest_price", 0.0),
+                    "trailing_threshold": getattr(position, "highest_stop_pnl_pct", 0.0),
+                    "retracement": getattr(position, "highest_pnl_pct", 0.0) - getattr(position, "pnl_pct", 0.0),
+                    "exit_reason": reason,
+                    "active_stop": getattr(position, "s6_stop_price", 0.0),
+                    "moonshot_state": getattr(position, "s6_state", "UNKNOWN"),
+                    "profit_booking_state": str(getattr(position, "fired_ladder_levels", [])),
+                    "gross_proceeds": gross_proceeds,
+                    "entry_costs": getattr(position, "entry_fees", 0.0) + getattr(position, "entry_slippage", 0.0),
+                    "exit_costs": exit_friction,
+                    "network_fees": network_fee,
+                    "commission": 0.0,
+                    "net_pnl": net_slice_pnl,
+                    "experiment_id": "FORWARD_TEST_01",
+                    "strategy_id": getattr(position, "strategy_id", "default")
+                })
+            except Exception as e:
+                logger.error(f"[FORWARD LEDGER] Failed to save partial sell execution/exit: {e}")
 
         return True
 
@@ -623,5 +792,54 @@ class PaperTrader:
         print("Cash Balance      : $", round(self.portfolio.cash, 6))
         print("==============================")
         print()
+
+        # === FORWARD LEDGER EXECUTION & EXIT LOGGING ===
+        if _fwd_persistence:
+            try:
+                # Execution log (since sell_all is an execution)
+                _fwd_persistence.save_forward_execution({
+                    "trade_id": position.trade_id,
+                    "timestamp": time.time(),
+                    "quote_1": position.current_price,
+                    "quote_2": position.current_price,
+                    "quoted_price": position.current_price,
+                    "executable_price": position.current_price,
+                    "deterioration": 0.0,
+                    "attempt_count": 1,
+                    "failure_class": "NONE",
+                    "retry_eligible": False,
+                    "execution_result": "SUCCESS",
+                    "execution_price": position.current_price,
+                    "execution_source": "JUPITER_QUOTE_PROXY",
+                    "fees": 0.0,
+                    "slippage": exit_friction,
+                    "network_fee": network_fee,
+                    "commission": 0.0,
+                    "experiment_id": "FORWARD_TEST_01",
+                    "strategy_id": getattr(position, "strategy_id", "default")
+                })
+
+                _fwd_persistence.save_forward_exit({
+                    "trade_id": position.trade_id,
+                    "exit_timestamp": time.time(),
+                    "exit_price": position.current_price,
+                    "hwm": getattr(position, "highest_price", 0.0),
+                    "trailing_threshold": getattr(position, "highest_stop_pnl_pct", 0.0),
+                    "retracement": getattr(position, "highest_pnl_pct", 0.0) - getattr(position, "pnl_pct", 0.0),
+                    "exit_reason": reason,
+                    "active_stop": getattr(position, "s6_stop_price", 0.0),
+                    "moonshot_state": getattr(position, "s6_state", "UNKNOWN"),
+                    "profit_booking_state": str(getattr(position, "fired_ladder_levels", [])),
+                    "gross_proceeds": gross_proceeds,
+                    "entry_costs": getattr(position, "entry_fees", 0.0) + getattr(position, "entry_slippage", 0.0),
+                    "exit_costs": exit_friction,
+                    "network_fees": network_fee,
+                    "commission": 0.0,
+                    "net_pnl": net_slice_pnl,
+                    "experiment_id": "FORWARD_TEST_01",
+                    "strategy_id": getattr(position, "strategy_id", "default")
+                })
+            except Exception as e:
+                logger.error(f"[FORWARD LEDGER] Failed to save sell_all execution/exit: {e}")
 
         return True

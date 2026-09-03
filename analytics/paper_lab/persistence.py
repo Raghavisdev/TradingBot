@@ -58,7 +58,7 @@ class PaperLabPersistence:
         return self._conn
 
     def _init_metadata_table(self):
-        """Creates paper_lab_s6_forward_metadata table if it does not exist."""
+        """Creates paper_lab_s6_forward_metadata and new forward ledger tables if they do not exist."""
         try:
             conn = self._get_conn()
             cur = conn.cursor()
@@ -90,10 +90,221 @@ class PaperLabPersistence:
                     created_at REAL
                 );
             """)
+            
+            # 1. Forward Signal Ledger
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS forward_signal_ledger (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    signal_id TEXT,
+                    timestamp REAL,
+                    symbol TEXT,
+                    contract TEXT,
+                    final_score REAL,
+                    gt_score REAL,
+                    liquidity REAL,
+                    buys INTEGER,
+                    sells INTEGER,
+                    effective_entry_mc REAL,
+                    current_price REAL,
+                    portfolio_equity_before REAL,
+                    cash_before REAL,
+                    active_s6_exposure REAL,
+                    requested_amount REAL,
+                    final_amount REAL,
+                    all_sizing_inputs TEXT,
+                    sizing_formula_version TEXT,
+                    experiment_id TEXT,
+                    strategy_id TEXT
+                );
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_fsl_sig_id ON forward_signal_ledger(signal_id);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_fsl_ts ON forward_signal_ledger(timestamp);")
+            
+            # 2. Forward Execution Ledger
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS forward_execution_ledger (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    trade_id TEXT,
+                    timestamp REAL,
+                    quote_1 REAL,
+                    quote_2 REAL,
+                    quoted_price REAL,
+                    executable_price REAL,
+                    deterioration REAL,
+                    attempt_count INTEGER,
+                    failure_class TEXT,
+                    retry_eligible INTEGER,
+                    execution_result TEXT,
+                    execution_price REAL,
+                    execution_source TEXT,
+                    fees REAL,
+                    slippage REAL,
+                    network_fee REAL,
+                    commission REAL,
+                    experiment_id TEXT,
+                    strategy_id TEXT
+                );
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_fel_trade_id ON forward_execution_ledger(trade_id);")
+            
+            # 3. Forward Tick Ledger
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS forward_tick_ledger (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    trade_id TEXT,
+                    timestamp REAL,
+                    price REAL,
+                    market_cap REAL,
+                    liquidity REAL,
+                    volume REAL,
+                    buys INTEGER,
+                    sells INTEGER,
+                    hwm REAL,
+                    current_retracement REAL,
+                    strategy_state TEXT,
+                    experiment_id TEXT,
+                    strategy_id TEXT
+                );
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_ftl_trade_id ON forward_tick_ledger(trade_id);")
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_ftl_ts ON forward_tick_ledger(timestamp);")
+            
+            # 4. Forward Exit Ledger
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS forward_exit_ledger (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    trade_id TEXT,
+                    exit_timestamp REAL,
+                    exit_price REAL,
+                    hwm REAL,
+                    trailing_threshold REAL,
+                    retracement REAL,
+                    exit_reason TEXT,
+                    profit_booking_state TEXT,
+                    gross_proceeds REAL,
+                    entry_costs REAL,
+                    exit_costs REAL,
+                    network_fees REAL,
+                    commission REAL,
+                    net_pnl REAL,
+                    experiment_id TEXT,
+                    strategy_id TEXT
+                );
+            """)
+            cur.execute("CREATE INDEX IF NOT EXISTS idx_fexl_trade_id ON forward_exit_ledger(trade_id);")
+            
             conn.commit()
             cur.close()
         except Exception as e:
             print(f"[PAPER LAB PERSISTENCE] Metadata table setup notice: {e}")
+
+    @_synchronized
+    def save_forward_signal(self, sig_dict):
+        conn = self._get_conn()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                INSERT INTO forward_signal_ledger (
+                    signal_id, timestamp, symbol, contract, final_score, gt_score, liquidity, 
+                    buys, sells, effective_entry_mc, current_price, portfolio_equity_before, 
+                    cash_before, active_s6_exposure, requested_amount, final_amount, 
+                    all_sizing_inputs, sizing_formula_version, experiment_id, strategy_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                sig_dict.get('signal_id'), sig_dict.get('timestamp'), sig_dict.get('symbol'), sig_dict.get('contract'),
+                sig_dict.get('final_score'), sig_dict.get('gt_score'), sig_dict.get('liquidity'),
+                sig_dict.get('buys'), sig_dict.get('sells'), sig_dict.get('effective_entry_mc'),
+                sig_dict.get('current_price'), sig_dict.get('portfolio_equity_before'),
+                sig_dict.get('cash_before'), sig_dict.get('active_s6_exposure'),
+                sig_dict.get('requested_amount'), sig_dict.get('final_amount'),
+                sig_dict.get('all_sizing_inputs'), sig_dict.get('sizing_formula_version'),
+                sig_dict.get('experiment_id'), sig_dict.get('strategy_id')
+            ))
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            print(f"[PAPER LAB PERSISTENCE ERROR] save_forward_signal failed: {e}")
+        finally:
+            cur.close()
+
+    @_synchronized
+    def save_forward_execution(self, exec_dict):
+        conn = self._get_conn()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                INSERT INTO forward_execution_ledger (
+                    trade_id, timestamp, quote_1, quote_2, quoted_price, executable_price,
+                    deterioration, attempt_count, failure_class, retry_eligible, execution_result,
+                    execution_price, execution_source, fees, slippage, network_fee, commission,
+                    experiment_id, strategy_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                exec_dict.get('trade_id'), exec_dict.get('timestamp', time.time()), exec_dict.get('quote_1'),
+                exec_dict.get('quote_2'), exec_dict.get('quoted_price'), exec_dict.get('executable_price'),
+                exec_dict.get('deterioration'), exec_dict.get('attempt_count'), exec_dict.get('failure_class'),
+                1 if exec_dict.get('retry_eligible') else 0, exec_dict.get('execution_result'),
+                exec_dict.get('execution_price'), exec_dict.get('execution_source'),
+                exec_dict.get('fees'), exec_dict.get('slippage'), exec_dict.get('network_fee'),
+                exec_dict.get('commission', 0.0), exec_dict.get('experiment_id'), exec_dict.get('strategy_id')
+            ))
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            print(f"[PAPER LAB PERSISTENCE ERROR] save_forward_execution failed: {e}")
+        finally:
+            cur.close()
+
+    @_synchronized
+    def save_forward_tick(self, tick_dict):
+        conn = self._get_conn()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                INSERT INTO forward_tick_ledger (
+                    trade_id, timestamp, price, market_cap, liquidity, volume, buys, sells,
+                    hwm, current_retracement, strategy_state, experiment_id, strategy_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                tick_dict.get('trade_id'), tick_dict.get('timestamp', time.time()), tick_dict.get('price'),
+                tick_dict.get('market_cap'), tick_dict.get('liquidity'), tick_dict.get('volume'),
+                tick_dict.get('buys'), tick_dict.get('sells'), tick_dict.get('hwm'),
+                tick_dict.get('current_retracement'), tick_dict.get('strategy_state'),
+                tick_dict.get('experiment_id'), tick_dict.get('strategy_id')
+            ))
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            print(f"[PAPER LAB PERSISTENCE ERROR] save_forward_tick failed: {e}")
+        finally:
+            cur.close()
+
+    @_synchronized
+    def save_forward_exit(self, exit_dict):
+        conn = self._get_conn()
+        cur = conn.cursor()
+        try:
+            cur.execute("""
+                INSERT INTO forward_exit_ledger (
+                    trade_id, exit_timestamp, exit_price, hwm, trailing_threshold,
+                    retracement, exit_reason, profit_booking_state, gross_proceeds,
+                    entry_costs, exit_costs, network_fees, commission, net_pnl,
+                    experiment_id, strategy_id
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                exit_dict.get('trade_id'), exit_dict.get('exit_timestamp', time.time()),
+                exit_dict.get('exit_price'), exit_dict.get('hwm'), exit_dict.get('trailing_threshold'),
+                exit_dict.get('retracement'), exit_dict.get('exit_reason'), exit_dict.get('profit_booking_state'),
+                exit_dict.get('gross_proceeds'), exit_dict.get('entry_costs'), exit_dict.get('exit_costs'),
+                exit_dict.get('network_fees'), exit_dict.get('commission', 0.0), exit_dict.get('net_pnl'),
+                exit_dict.get('experiment_id'), exit_dict.get('strategy_id')
+            ))
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            print(f"[PAPER LAB PERSISTENCE ERROR] save_forward_exit failed: {e}")
+        finally:
+            cur.close()
 
     # ============================================================
     # TRADES PERSISTENCE

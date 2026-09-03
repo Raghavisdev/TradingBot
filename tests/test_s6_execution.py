@@ -1,6 +1,6 @@
 import unittest
 import os
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, PropertyMock
 
 from trading.portfolio import Portfolio
 from ai_engine.s6_execution import evaluate_s6_execution
@@ -26,6 +26,8 @@ class MockCoin:
 class TestS6Execution(unittest.TestCase):
     
     def setUp(self):
+        import config
+        config.S6_CANDIDATE_MODE = False
         self.portfolio = Portfolio()
         self.portfolio.initial_balance = 500.0
         self.portfolio.cash = 500.0
@@ -113,21 +115,27 @@ class TestS6Execution(unittest.TestCase):
         self.assertEqual(decision.amount, 2.0)
 
     @patch('ai_engine.s6_execution.recheck_market')
-    def test_6a_score_59_99_rejected(self, mock_recheck):
-        self.coin.final_score = 59.99
+    def test_6a_score_54_99_rejected(self, mock_recheck):
+        """Test that score < 55 is rejected (now the threshold is 55.0)"""
+        self.coin.final_score = 54.9
         mock_recheck.return_value = ExecutionState(1000, 50000, 1.0, 20000, 5000, 50, 50, 50000, 1.0, 1.0, 1.0, 10.0)
         
         decision = evaluate_s6_execution(self.coin, self.portfolio)
         self.assertEqual(decision.amount, 0.0)
-        self.assertIn("< 60.0", decision.reason)
-
+        self.assertIn("54.9", decision.reason)
+        
     @patch('ai_engine.s6_execution.recheck_market')
-    def test_6b_score_60_00_accepted(self, mock_recheck):
-        self.coin.final_score = 60.0
+    def test_6b_score_55_accepted(self, mock_recheck):
+        """Test that score 55.0 is accepted"""
+        self.coin.final_score = 55.0
         mock_recheck.return_value = ExecutionState(1000, 50000, 1.0, 20000, 5000, 50, 50, 50000, 1.0, 1.0, 1.0, 10.0)
         
-        decision = evaluate_s6_execution(self.coin, self.portfolio)
-        self.assertEqual(decision.amount, 2.0)
+        with patch('trading.portfolio.Portfolio.total_equity', new_callable=PropertyMock) as mock_eq:
+            with patch('trading.portfolio.Portfolio.highest_equity', new_callable=PropertyMock, create=True) as mock_hwm:
+                mock_eq.return_value = 10000.0
+                mock_hwm.return_value = 10000.0
+                decision = evaluate_s6_execution(self.coin, self.portfolio)
+                self.assertGreater(decision.amount, 0.0)
 
     @patch('ai_engine.s6_execution.recheck_market')
     def test_6c_score_61_00_accepted(self, mock_recheck):

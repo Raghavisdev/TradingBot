@@ -118,6 +118,7 @@ class TestPipelineS6E2E(unittest.TestCase):
         self.assertTrue(getattr(coin, 'buy_blocked_by', None) is None or "Position Sizer" not in getattr(coin, 'buy_blocked_by', ''))
         
     @patch('engine.pipeline.trader')
+    @patch('config.S6_CANDIDATE_MODE', True)
     def test_pipeline_amount_passed_to_execution(self, mock_trader):
         mock_paper = mock_trader
         mock_paper.buy.return_value.entry_price = 1.0
@@ -150,22 +151,24 @@ class TestPipelineS6E2E(unittest.TestCase):
             signal_age_seconds=10.0
         )
         
-        # mock paper setup removed
+        mock_paper = mock_trader
+        mock_paper.buy.return_value.entry_price = 1.0
+        mock_paper.buy.return_value.entry_market_cap = 50000.0
 
-        with patch.dict(os.environ, {"S6_Moonshot_VNext_MODE": "SHADOW", "LIVE_TRADING": "False"}):
+        with patch.dict(os.environ, {"S6_Moonshot_VNext_MODE": "SHADOW", "LIVE_TRADING": "False", "S6_CANDIDATE_MODE": "True"}):
             coin = process_message(message)
             
         # Verify it went through successfully and wasn't blocked by Position Sizer
         self.assertTrue(getattr(coin, 'buy_blocked_by', None) is None or "Position Sizer" not in getattr(coin, 'buy_blocked_by', ''))
         
-        # Verify trade_executor.buy was called with amount=2.0
+        # Verify trade_executor.buy was called with amount=3.508
         mock_paper.buy.assert_called_once()
         args, kwargs = mock_paper.buy.call_args
         # buy(coin, amount)
-        self.assertEqual(kwargs.get('amount') or args[1], 2.0)
+        self.assertAlmostEqual(kwargs.get('amount') or args[1], 3.508, places=2)
 
     @patch('engine.pipeline.PaperTrader')
-    def test_pipeline_e2e_score_below_60_rejected(self, mock_paper_trader_class):
+    def test_pipeline_e2e_score_below_55_rejected(self, mock_paper_trader_class):
         message = {"token": "E2ETEST_SCORE", "contract": "SCORE_CONTRACT", "market_cap": 50000.0}
         class DummyCoin: 
             contract = 'DUMMY'
@@ -175,7 +178,7 @@ class TestPipelineS6E2E(unittest.TestCase):
         self.mock_parse.return_value = DummyCoin()
         
         def mock_decision_effect(coin):
-            coin.final_score = 59.99 # < 60.0
+            coin.final_score = 54.99 # < 55.0
             coin.decision = "BUY"
             coin.valid = True
             return coin
@@ -198,8 +201,8 @@ class TestPipelineS6E2E(unittest.TestCase):
         with patch.dict(os.environ, {"S6_Moonshot_VNext_MODE": "SHADOW", "LIVE_TRADING": "False"}):
             coin = process_message(message)
             
-        # Verify blocked by position sizer due to amount = 0
-        self.assertIn("Position Sizer", getattr(coin, 'buy_blocked_by', ''))
+        # Verify blocked by AI Decision directly
+        self.assertIn("AI Decision", getattr(coin, 'buy_blocked_by', ''))
         
         mock_paper.buy.assert_not_called()
 
@@ -214,7 +217,7 @@ class TestPipelineS6E2E(unittest.TestCase):
         self.mock_parse.return_value = DummyCoin()
         
         def mock_decision_effect(coin):
-            coin.final_score = 80.0
+            coin.final_score = 65.0
             coin.decision = "BUY"
             coin.valid = True
             return coin

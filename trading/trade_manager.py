@@ -7,6 +7,14 @@ from ai_engine.market_health import calculate_market_health
 from ai_engine.exit_ai import get_exit_decision
 from trading.position import Position
 from database.database import database
+from config import S6_CANDIDATE_MODE
+import os
+
+try:
+    from analytics.paper_lab.persistence import PaperLabPersistence
+    _fwd_persistence = PaperLabPersistence()
+except Exception:
+    _fwd_persistence = None
 
 logger = logging.getLogger("TradeManager")
 
@@ -71,9 +79,16 @@ class TradeManager:
                 position.tokens           = float(row.get("tokens",           0.0) or 0.0)
 
                 # Restore partial-sell state
-                position.remaining_percent = float(row.get("remaining_pct", 100.0) or 100.0)
+                val = row.get("remaining_pct")
+                position.remaining_percent = float(val) if val is not None else 100.0
+                position.remaining_percent = max(0.0, min(100.0, position.remaining_percent))
                 position.sold_percent      = 100.0 - position.remaining_percent
                 position.realized_profit   = float(row.get("realized_pnl",    0.0) or 0.0)
+                
+                if position.remaining_percent <= 0:
+                    position.status = "CLOSED"
+                    logger.info("[PAPER RECOVERY] Skipping fully exited position: %s", position.trade_id)
+                    continue
 
                 # Restore excursion metrics
                 position.mfe = float(row.get("mfe", 0.0) or 0.0)
@@ -217,11 +232,89 @@ class TradeManager:
             # Exit AI
             # ------------------------------------------
             
-            action, confidence, reason = get_exit_decision(position)
+            action = None
+            confidence = 0.0
+            reason = ""
+            
+            if S6_CANDIDATE_MODE and getattr(position, "strategy_id", "") == "S6_Moonshot_Ladder":
+                # Initialize state if not present
+                if not hasattr(position, 's6_state'):
+                    position.s6_state = 'NORMAL'
+                if not hasattr(position, 's6_stop_price'):
+                    position.s6_stop_price = position.entry_price * 0.80 # Initial -20% stop
+                
+                hwm = position.highest_price
+                current_price = position.current_price
+                
+                # Check Moonshot transition (trigger at +100% from entry)
+                if position.s6_state == 'NORMAL' and (hwm / position.entry_price) >= 2.0:
+                    position.s6_state = 'MOONSHOT'
+                    # Log moonshot variables
+                    if _fwd_persistence:
+                        try:
+                            _fwd_persistence.save_forward_tick({"event": "MOONSHOT_ACTIVATED", "trade_id": position.trade_id, "hwm": hwm, "liquidity": position.liquidity})
+                        except: pass
+                
+                # Calculate candidate stop based on current state
+                if position.s6_state == 'MOONSHOT':
+                    # INTENTIONAL PARADOX: Widening the trail to -30% (0.70x peak) creates breathing room.
+                    # Because of the max() ratcheting rule below, the stop will NOT drop.
+                    # e.g., At 2.0x, normal stop was 1.6x. Moonshot candidate is 1.4x.
+                    # max(1.6, 1.4) = 1.6x. 
+                    # The stop remains flat at 1.6x until peak > 2.285x, where 0.70 * peak > 1.6x.
+                    candidate_stop = hwm * 0.70 # -30% from peak
+                else:
+                    candidate_stop = hwm * 0.80 # -20% from peak
+                
+                # Strict ratcheting constraint (Stop can never decrease)
+                position.s6_stop_price = max(position.s6_stop_price, candidate_stop)
+                
+                # Trigger liquidation
+                if current_price <= position.s6_stop_price:
+                    action = "SELL_ALL"
+                    confidence = 100.0
+                    reason = f"S6 {position.s6_state} TRAIL BREAK: Price {current_price:.6f} <= Stop {position.s6_stop_price:.6f}"
+            
+            if action is None:
+                action, confidence, reason = get_exit_decision(position)
 
             position.exit_action     = action
             position.exit_confidence = confidence
             position.exit_reason     = reason
+
+            # ------------------------------------------
+            # FORWARD TICK LEDGER LOGGING
+            # ------------------------------------------
+            import os
+            import time
+            if _fwd_persistence and getattr(position, "strategy_id", "default").startswith("S6"):
+                try:
+                    full_log = os.getenv("FORWARD_TICK_LEDGER_FULL", "False").lower() in ("true", "1", "yes")
+                    
+                    # Track last logged HWM to only log on changes if not full
+                    last_logged_hwm = getattr(position, "_last_logged_hwm", 0.0)
+                    hwm_changed = getattr(position, "highest_price", 0.0) > last_logged_hwm
+                    
+                    if full_log or hwm_changed or action != "HOLD":
+                        tick_dict = {
+                            "trade_id": position.trade_id,
+                            "timestamp": time.time(),
+                            "price": position.current_price,
+                            "market_cap": position.current_market_cap,
+                            "liquidity": position.liquidity,
+                            "volume": position.volume_5m,
+                            "buys": position.buys_5m,
+                            "sells": position.sells_5m,
+                            "hwm": getattr(position, "highest_price", 0.0),
+                            "current_retracement": getattr(position, "highest_pnl_pct", 0.0) - getattr(position, "pnl_pct", 0.0),
+                            "strategy_state": str(getattr(position, "fired_ladder_levels", [])),
+                            "experiment_id": "FORWARD_TEST_01",
+                            "strategy_id": getattr(position, "strategy_id", "default")
+                        }
+                        _fwd_persistence.save_forward_tick(tick_dict)
+                        position._last_logged_hwm = getattr(position, "highest_price", 0.0)
+                except Exception as e:
+                    logger.error(f"[FORWARD LEDGER] Failed to save tick: {e}")
 
             # ------------------------------------------
             # Display
