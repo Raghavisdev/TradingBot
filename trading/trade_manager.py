@@ -257,11 +257,6 @@ class TradeManager:
                 
                 # Calculate candidate stop based on current state
                 if position.s6_state == 'MOONSHOT':
-                    # INTENTIONAL PARADOX: Widening the trail to -30% (0.70x peak) creates breathing room.
-                    # Because of the max() ratcheting rule below, the stop will NOT drop.
-                    # e.g., At 2.0x, normal stop was 1.6x. Moonshot candidate is 1.4x.
-                    # max(1.6, 1.4) = 1.6x. 
-                    # The stop remains flat at 1.6x until peak > 2.285x, where 0.70 * peak > 1.6x.
                     candidate_stop = hwm * 0.70 # -30% from peak
                 else:
                     candidate_stop = hwm * 0.80 # -20% from peak
@@ -278,8 +273,8 @@ class TradeManager:
                     action = "HOLD"
                     confidence = 0.0
                     reason = ""
-            
-            if action is None:
+            else:
+                # Non-S6 strategies use legacy exit AI
                 action, confidence, reason = get_exit_decision(position)
 
             position.exit_action     = action
