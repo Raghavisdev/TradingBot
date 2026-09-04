@@ -19,6 +19,12 @@ class JupiterError(Exception):
 class JupiterRateLimitedError(JupiterError):
     pass
 
+class RequestState:
+    def __init__(self, cond):
+        self.cond = cond
+        self.completed = False
+        self.result = None
+
 class JupiterClient:
     def __init__(
         self,
@@ -70,15 +76,15 @@ class JupiterClient:
         
         with self._limiter_lock:
             if canonical_key in self._in_flight_requests:
-                cond = self._in_flight_requests[canonical_key]
-                cond.wait()
-                if isinstance(cond.result, Exception):
-                    raise cond.result
-                return cond.result
+                state = self._in_flight_requests[canonical_key]
+                while not state.completed:
+                    state.cond.wait()
+                if isinstance(state.result, Exception):
+                    raise state.result
+                return state.result
             
-            cond = threading.Condition(self._limiter_lock)
-            cond.result = None
-            self._in_flight_requests[canonical_key] = cond
+            state = RequestState(threading.Condition(self._limiter_lock))
+            self._in_flight_requests[canonical_key] = state
             
             if is_exit:
                 self._exit_waiters += 1
@@ -165,9 +171,11 @@ class JupiterClient:
                     self._exit_waiters -= 1
                     if self._exit_waiters == 0:
                         self._entry_cv.notify_all()
-                cond = self._in_flight_requests.pop(canonical_key)
-                cond.result = result if 'result' in locals() else JupiterError("Unknown error")
-                cond.notify_all()
+                state = self._in_flight_requests.pop(canonical_key, None)
+                if state:
+                    state.completed = True
+                    state.result = result if 'result' in locals() else JupiterError("Unknown error")
+                    state.cond.notify_all()
 
     def get_quote(self, input_mint, output_mint, amount, slippage_bps=None, is_exit=False):
         amount = int(amount)
