@@ -688,6 +688,22 @@ def create_tables():
             ("abort_reason", "TEXT"),
             ("fee_estimation_status", "TEXT"),
             ("live_expected_net_edge", "REAL"),
+            ("base_fee_lamports", "REAL"),
+            ("priority_fee_lamports", "REAL"),
+            ("total_network_fee_lamports", "REAL"),
+            ("compute_unit_limit", "INTEGER"),
+            ("compute_unit_price_micro_lamports", "REAL"),
+            ("fee_source", "TEXT"),
+            ("fee_cap_lamports", "REAL"),
+            ("fee_estimation_timestamp", "REAL"),
+            ("jupiter_http_status", "INTEGER"),
+            ("jupiter_retry_count", "INTEGER"),
+            ("jupiter_retry_after_ms", "REAL"),
+            ("jupiter_rate_limit_wait_ms", "REAL"),
+            ("quote_attempt", "INTEGER"),
+            ("quote_timestamp", "REAL"),
+            ("quote_age_ms", "REAL"),
+            ("jupiter_failure_reason", "TEXT"),
         ]:
             try:
                 cursor.execute(f"ALTER TABLE execution_orders ADD COLUMN {col} {col_type}")

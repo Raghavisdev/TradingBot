@@ -78,14 +78,13 @@ class LiveExecutor:
     """
 
     def __init__(self):
+        import config
 
         self.jupiter = JupiterClient(
-            slippage_bps=int(
-                os.getenv(
-                    "LIVE_MAX_SLIPPAGE_BPS",
-                    "100",
-                )
-            )
+            slippage_bps=getattr(config, "LIVE_SLIPPAGE_BPS", 100),
+            max_retries=getattr(config, "JUPITER_MAX_RETRIES", 2),
+            retry_base_delay=getattr(config, "JUPITER_RETRY_BASE_DELAY", 2.0),
+            retry_max_delay=getattr(config, "JUPITER_RETRY_MAX_DELAY", 12.0)
         )
 
         self.risk = LiveRiskManager()
@@ -94,6 +93,9 @@ class LiveExecutor:
             "SOLANA_RPC_URL",
             SOLANA_RPC_URL,
         )
+        
+        from execution.fee_resolver import FeeResolver
+        self.fee_resolver = FeeResolver(self)
 
     # =========================================================
     # RPC
@@ -355,6 +357,17 @@ class LiveExecutor:
             )
 
         except JupiterError as exc:
+            import execution.jupiter_client as jc
+            if isinstance(exc, jc.JupiterRateLimitedError):
+                return LiveExecutionResult(
+                    False,
+                    error="Jupiter Rate Limited",
+                    direction="BUY",
+                    decision="ABORT",
+                    abort_reason="JUPITER_RATE_LIMITED",
+                    fee_estimation_status="UNAVAILABLE",
+                    telemetry={"jupiter_failure_reason": str(exc)}
+                )
             return LiveExecutionResult(
                 False,
                 error=str(exc),
@@ -436,23 +449,70 @@ class LiveExecutor:
         
         try:
             import config
+            
+            telemetry = quote.get("_telemetry", {})
+            quote_ts = telemetry.get("quote_timestamp", time.time())
+            quote_age_ms = (time.time() - quote_ts) * 1000.0
+            
+            if quote_age_ms > getattr(config, "JUPITER_QUOTE_FRESHNESS_MS", 30000.0):
+                logger.warning(f"[FINAL ECONOMIC GATE] STALE_QUOTE: age {quote_age_ms:.0f}ms exceeds threshold.")
+                return LiveExecutionResult(
+                    False,
+                    quote=quote,
+                    price_impact=price_impact,
+                    amount_usd=amount_usd,
+                    token_mint=token_mint,
+                    error="STALE_QUOTE",
+                    direction="BUY",
+                    decision="ABORT",
+                    abort_reason="STALE_QUOTE",
+                    fee_estimation_status="UNAVAILABLE",
+                    live_expected_net_edge=0.0,
+                    **telemetry
+                )
+            
+            telemetry["quote_age_ms"] = quote_age_ms
+            
             out_amount = float(quote.get("outAmount", 0)) / (10 ** 6) # Assuming 6 decimals for target token
             in_amount = float(quote.get("inAmount", 0)) / (10 ** 9) # Assuming 9 decimals for SOL
             
-            sol_price_usd = wallet.get_sol_usd_price() if 'wallet' in locals() else 150.0
+            from trading.live_wallet import LiveWallet
+            try:
+                temp_wallet = LiveWallet(wallet_public_key)
+                sol_price_usd = temp_wallet.get_sol_usd_price()
+            except Exception as e:
+                logger.error(f"[FINAL ECONOMIC GATE] Failed to fetch SOL price: {e}")
+                sol_price_usd = None
+                
+            if not sol_price_usd or sol_price_usd <= 0:
+                logger.warning("[FINAL ECONOMIC GATE] SOL_PRICE_UNAVAILABLE: Rejecting opportunity.")
+                return LiveExecutionResult(
+                    False,
+                    quote=quote,
+                    price_impact=price_impact,
+                    amount_usd=amount_usd,
+                    token_mint=token_mint,
+                    error="SOL_PRICE_UNAVAILABLE",
+                    direction="BUY",
+                    decision="ABORT",
+                    abort_reason="SOL_PRICE_UNAVAILABLE",
+                    fee_estimation_status="UNAVAILABLE",
+                    live_expected_net_edge=0.0
+                )
+                
             executable_price = (in_amount * sol_price_usd) / out_amount if out_amount > 0 else 0.0
             
-            # Determine fees
-            network_fee_sol = 0.000005
+            # Determine fees via Dynamic Fee Resolver
+            fee_cap_sol = getattr(config, "LIVE_PRIORITY_FEE_MAX_SOL", 0.005)
+            fee_info = self.fee_resolver.estimate_network_fees(transaction, fee_cap_sol)
             
-            # Extract priority fee if returned by Jupiter (simulate if missing for Phase 1)
-            # The swap endpoint can return prioritizationFeeLamports, but we're fetching quote here.
-            # We'll use a conservative estimate or the config max.
-            priority_fee_sol = getattr(config, "LIVE_PRIORITY_FEE_MAX_SOL", 0.005)
-            # Since exact live priority-fee estimation is not currently parsed dynamically:
-            fee_estimation_status = "INCOMPLETE" 
-            # We will add it to the logger and note it.
-            logger.warning("[FINAL ECONOMIC GATE] PRIORITY_FEE_ESTIMATION_INCOMPLETE: Using simulated max fee.")
+            fee_estimation_status = fee_info.get("fee_estimation_status", "UNAVAILABLE")
+            network_fee_sol = fee_info.get("base_fee_lamports", 0.0) / 10**9
+            priority_fee_sol = fee_info.get("priority_fee_lamports", 0.0) / 10**9
+            total_network_fee_lamports = fee_info.get("total_network_fee_lamports", 0.0)
+            
+            if fee_estimation_status == "UNAVAILABLE":
+                logger.warning("[FINAL ECONOMIC GATE] FEE_ESTIMATION_UNAVAILABLE: Rejecting opportunity.")
             
             total_fee_usd = (network_fee_sol + priority_fee_sol) * sol_price_usd
             slippage_usd = (executable_price * out_amount) * (price_impact / 100.0)
@@ -462,6 +522,13 @@ class LiveExecutor:
             live_expected_net_edge = 0.0
             decision = "SHADOW_WOULD_EXECUTE"
             abort_reason = None
+            
+            if fee_estimation_status == "UNAVAILABLE":
+                decision = "ABORT"
+                abort_reason = "FEE_ESTIMATION_UNAVAILABLE"
+            elif total_network_fee_lamports > fee_info.get("fee_cap_lamports", 0.0):
+                decision = "ABORT"
+                abort_reason = "FEE_CAP_EXCEEDED"
             
             if coin:
                 from ai_engine.s6_production_entry import evaluate_s6_production_entry
@@ -499,6 +566,8 @@ class LiveExecutor:
                     slippage_usd=slippage_usd,
                     quote_ts=quote_ts,
                     build_ts=build_ts,
+                    **fee_info,
+                    **telemetry
                 )
                 
         except Exception as gate_exc:
@@ -530,9 +599,7 @@ class LiveExecutor:
             price_impact=price_impact,
             amount_usd=amount_usd,
             token_mint=token_mint,
-            token_amount=int(
-                quote.get("outAmount", 0)
-            ),
+            token_amount=quote.get("outAmount"),
             direction="BUY",
             decision=decision,
             abort_reason=abort_reason,
@@ -544,6 +611,8 @@ class LiveExecutor:
             slippage_usd=slippage_usd,
             quote_ts=quote_ts,
             build_ts=build_ts,
+            **fee_info,
+            **telemetry
         )
 
     # =========================================================
@@ -631,9 +700,21 @@ class LiveExecutor:
                 input_mint=token_mint,
                 output_mint=SOL_MINT,
                 amount=token_amount,
+                is_exit=True,
             )
 
         except JupiterError as exc:
+            import execution.jupiter_client as jc
+            if isinstance(exc, jc.JupiterRateLimitedError):
+                return LiveExecutionResult(
+                    False,
+                    error="Jupiter Rate Limited",
+                    direction="SELL",
+                    decision="ABORT",
+                    abort_reason="JUPITER_RATE_LIMITED",
+                    fee_estimation_status="UNAVAILABLE",
+                    telemetry={"jupiter_failure_reason": str(exc)}
+                )
 
             return LiveExecutionResult(
                 False,
@@ -704,6 +785,29 @@ class LiveExecutor:
         # -----------------------------------------------------
 
         try:
+            import config
+            import time
+            telemetry = quote.get("_telemetry", {})
+            quote_ts = telemetry.get("quote_timestamp", time.time())
+            quote_age_ms = (time.time() - quote_ts) * 1000.0
+            
+            if quote_age_ms > getattr(config, "JUPITER_QUOTE_FRESHNESS_MS", 30000.0):
+                logger.warning(f"[FINAL ECONOMIC GATE] STALE_QUOTE: age {quote_age_ms:.0f}ms exceeds threshold.")
+                return LiveExecutionResult(
+                    False,
+                    quote=quote,
+                    price_impact=price_impact,
+                    token_mint=token_mint,
+                    token_amount=token_amount,
+                    error="STALE_QUOTE",
+                    direction="SELL",
+                    decision="ABORT",
+                    abort_reason="STALE_QUOTE",
+                    fee_estimation_status="UNAVAILABLE",
+                    **telemetry
+                )
+            
+            telemetry["quote_age_ms"] = quote_age_ms
 
             wallet = LiveWallet(
                 wallet_public_key
@@ -779,6 +883,7 @@ class LiveExecutor:
                 self.jupiter.build_swap_transaction(
                     quote=quote,
                     user_public_key=wallet_public_key,
+                    is_exit=True,
                 )
             )
 
@@ -833,6 +938,7 @@ class LiveExecutor:
             token_mint=token_mint,
             token_amount=token_amount,
             direction="SELL",
+            **telemetry
         )
 
 

@@ -1,68 +1,176 @@
 import requests
 import random
 import time
-
+import threading
+import json
+import urllib.parse
+from email.utils import parsedate_to_datetime
+import datetime
+from requests.exceptions import RequestException
 
 JUPITER_BASE_URL = "https://api.jup.ag/swap/v1"
-
 SOL_MINT = "So11111111111111111111111111111111111111112"
-
 DEFAULT_SLIPPAGE_BPS = 100
 DEFAULT_TIMEOUT = 15
-
-# Jupiter/API gateway protection.
-# Keep retries bounded so a broken endpoint or invalid token
-# cannot stall the trading loop indefinitely.
-DEFAULT_MAX_RETRIES = 4
-DEFAULT_RETRY_BASE_DELAY = 2.0
-DEFAULT_RETRY_MAX_DELAY = 12.0
-
 
 class JupiterError(Exception):
     pass
 
+class JupiterRateLimitedError(JupiterError):
+    pass
 
 class JupiterClient:
-
     def __init__(
         self,
         slippage_bps=DEFAULT_SLIPPAGE_BPS,
         timeout=DEFAULT_TIMEOUT,
-        max_retries=DEFAULT_MAX_RETRIES,
-        retry_base_delay=DEFAULT_RETRY_BASE_DELAY,
-        retry_max_delay=DEFAULT_RETRY_MAX_DELAY,
+        max_retries=2,
+        retry_base_delay=2.0,
+        retry_max_delay=12.0,
     ):
         self.slippage_bps = int(slippage_bps)
         self.timeout = int(timeout)
+        self.max_retries = max(0, int(max_retries))
+        self.retry_base_delay = max(0.1, float(retry_base_delay))
+        self.retry_max_delay = max(self.retry_base_delay, float(retry_max_delay))
+        
+        # Rate Limiting & Coalescing State
+        self._in_flight_requests = {}
+        self._limiter_lock = threading.Lock()
+        self._exit_priority_cv = threading.Condition(self._limiter_lock)
+        self._entry_cv = threading.Condition(self._limiter_lock)
+        self._exit_waiters = 0
 
-        self.max_retries = max(
-            0,
-            int(max_retries),
-        )
+    def _parse_retry_after(self, retry_after_header):
+        if not retry_after_header:
+            return None
+        try:
+            return float(retry_after_header)
+        except ValueError:
+            pass
+        try:
+            dt = parsedate_to_datetime(retry_after_header)
+            now = datetime.datetime.now(datetime.timezone.utc)
+            delay = (dt - now).total_seconds()
+            return max(0.0, delay)
+        except Exception:
+            return None
 
-        self.retry_base_delay = max(
-            0.1,
-            float(retry_base_delay),
-        )
+    def _canonicalize_request(self, method, url, params=None, json_data=None):
+        canon_params = ()
+        if params:
+            canon_params = tuple(sorted((str(k), str(v)) for k, v in params.items()))
+        canon_json = ""
+        if json_data:
+            canon_json = json.dumps(json_data, sort_keys=True)
+        return f"{method}:{url}:{canon_params}:{canon_json}"
 
-        self.retry_max_delay = max(
-            self.retry_base_delay,
-            float(retry_max_delay),
-        )
+    def _request_with_retry(self, method, url, params=None, json_data=None, is_exit=False):
+        canonical_key = self._canonicalize_request(method, url, params, json_data)
+        
+        with self._limiter_lock:
+            if canonical_key in self._in_flight_requests:
+                cond = self._in_flight_requests[canonical_key]
+                cond.wait()
+                if isinstance(cond.result, Exception):
+                    raise cond.result
+                return cond.result
+            
+            cond = threading.Condition(self._limiter_lock)
+            cond.result = None
+            self._in_flight_requests[canonical_key] = cond
+            
+            if is_exit:
+                self._exit_waiters += 1
 
-    # =========================================================
-    # QUOTE
-    # =========================================================
+        attempt = 0
+        last_http_status = None
+        total_rate_limit_wait = 0.0
+        last_retry_after_ms = 0.0
+        
+        try:
+            while attempt <= self.max_retries:
+                with self._limiter_lock:
+                    if not is_exit:
+                        while self._exit_waiters > 0:
+                            self._entry_cv.wait()
+                
+                try:
+                    if method.upper() == "GET":
+                        response = requests.get(url, params=params, timeout=self.timeout)
+                    else:
+                        response = requests.post(url, json=json_data, timeout=self.timeout)
+                        
+                    last_http_status = response.status_code
+                    
+                except RequestException as exc:
+                    if attempt >= self.max_retries:
+                        raise JupiterError(f"Jupiter request failed after {attempt+1} attempts: {exc}") from exc
+                    delay = min(self.retry_max_delay, self.retry_base_delay * (2 ** attempt))
+                    delay += random.uniform(0.0, min(0.5, delay * 0.25))
+                    time.sleep(delay)
+                    attempt += 1
+                    continue
+                
+                if response.status_code == 200:
+                    try:
+                        data = response.json()
+                        result = {
+                            "data": data,
+                            "telemetry": {
+                                "jupiter_http_status": 200,
+                                "jupiter_retry_count": attempt,
+                                "jupiter_retry_after_ms": last_retry_after_ms,
+                                "jupiter_rate_limit_wait_ms": total_rate_limit_wait,
+                                "quote_attempt": attempt + 1,
+                                "quote_timestamp": time.time(),
+                                "jupiter_failure_reason": None
+                            }
+                        }
+                        return result
+                    except ValueError as exc:
+                        raise JupiterError(f"Invalid Jupiter JSON response: {response.text[:500]}") from exc
 
-    def get_quote(
-        self,
-        input_mint,
-        output_mint,
-        amount,
-        slippage_bps=None,
-    ):
+                if response.status_code == 400:
+                    raise JupiterError(f"Deterministic client error (400): {response.text[:500]}")
+                    
+                if response.status_code == 429 or response.status_code >= 500:
+                    if attempt >= self.max_retries:
+                        raise JupiterRateLimitedError(f"Jupiter HTTP {response.status_code} after {attempt+1} attempts")
+                        
+                    retry_after_val = self._parse_retry_after(response.headers.get("Retry-After"))
+                    if retry_after_val is not None:
+                        delay = min(self.retry_max_delay, retry_after_val)
+                        last_retry_after_ms = retry_after_val * 1000.0
+                    else:
+                        delay = self.retry_base_delay * (2 ** attempt)
+                        delay = min(self.retry_max_delay, delay)
+                        delay += random.uniform(0.0, min(0.5, delay * 0.25))
+                        
+                    total_rate_limit_wait += (delay * 1000.0)
+                    time.sleep(delay)
+                    attempt += 1
+                    continue
+                    
+                raise JupiterError(f"Jupiter HTTP {response.status_code}: {response.text[:500]}")
+                
+            raise JupiterRateLimitedError("Max retries exceeded")
+            
+        except Exception as final_exc:
+            result = final_exc
+            raise
+        finally:
+            with self._limiter_lock:
+                if is_exit:
+                    self._exit_waiters -= 1
+                    if self._exit_waiters == 0:
+                        self._entry_cv.notify_all()
+                cond = self._in_flight_requests.pop(canonical_key)
+                cond.result = result if 'result' in locals() else JupiterError("Unknown error")
+                cond.notify_all()
+
+    def get_quote(self, input_mint, output_mint, amount, slippage_bps=None, is_exit=False):
         amount = int(amount)
-
         if amount <= 0:
             raise JupiterError("Amount must be greater than zero")
 
@@ -70,353 +178,61 @@ class JupiterClient:
             "inputMint": str(input_mint),
             "outputMint": str(output_mint),
             "amount": str(amount),
-            "slippageBps": str(
-                self.slippage_bps
-                if slippage_bps is None
-                else int(slippage_bps)
-            ),
+            "slippageBps": str(self.slippage_bps if slippage_bps is None else int(slippage_bps)),
         }
-
         url = f"{JUPITER_BASE_URL}/quote"
-
-        # -----------------------------------------------------
-        # BOUNDED RETRY / BACKOFF
-        #
-        # 429 = temporary API throttling.
-        # 5xx = temporary upstream failure.
-        #
-        # Client errors such as 400 are returned immediately
-        # because retrying an invalid token/request is pointless.
-        # -----------------------------------------------------
-
-        response = None
-
-        for attempt in range(
-            self.max_retries + 1
-        ):
-
-            try:
-
-                response = requests.get(
-                    url,
-                    params=params,
-                    timeout=self.timeout,
-                )
-
-            except requests.RequestException as exc:
-
-                if attempt >= self.max_retries:
-
-                    raise JupiterError(
-                        f"Jupiter quote request failed "
-                        f"after {attempt + 1} attempts: {exc}"
-                    ) from exc
-
-                delay = min(
-                    self.retry_max_delay,
-                    self.retry_base_delay
-                    * (2 ** attempt),
-                )
-
-                delay += random.uniform(
-                    0.0,
-                    min(0.5, delay * 0.25),
-                )
-
-                print(
-                    f"[JUPITER] Quote request failed; "
-                    f"retrying in {delay:.2f}s "
-                    f"(attempt {attempt + 1}/"
-                    f"{self.max_retries})"
-                )
-
-                time.sleep(delay)
-
-                continue
-
-            # -------------------------------------------------
-            # SUCCESS
-            # -------------------------------------------------
-
-            if response.status_code == 200:
-                break
-
-            # -------------------------------------------------
-            # TEMPORARY THROTTLING / SERVER FAILURE
-            # -------------------------------------------------
-
-            if (
-                response.status_code == 429
-                or response.status_code >= 500
-            ):
-
-                if attempt >= self.max_retries:
-
-                    raise JupiterError(
-                        f"Jupiter quote HTTP "
-                        f"{response.status_code} "
-                        f"after {attempt + 1} attempts: "
-                        f"{response.text[:500]}"
-                    )
-
-                retry_after = response.headers.get(
-                    "Retry-After"
-                )
-
-                try:
-                    delay = float(
-                        retry_after
-                    )
-                except (
-                    TypeError,
-                    ValueError,
-                ):
-
-                    delay = min(
-                        self.retry_max_delay,
-                        self.retry_base_delay
-                        * (2 ** attempt),
-                    )
-
-                    delay += random.uniform(
-                        0.0,
-                        min(0.5, delay * 0.25),
-                    )
-
-                delay = min(
-                    self.retry_max_delay,
-                    max(0.1, delay),
-                )
-
-                print(
-                    f"[JUPITER] HTTP "
-                    f"{response.status_code}; "
-                    f"retrying in {delay:.2f}s "
-                    f"(attempt {attempt + 1}/"
-                    f"{self.max_retries})"
-                )
-
-                time.sleep(delay)
-
-                continue
-
-            # -------------------------------------------------
-            # PERMANENT CLIENT ERROR
-            # -------------------------------------------------
-
-            raise JupiterError(
-                f"Jupiter quote HTTP "
-                f"{response.status_code}: "
-                f"{response.text[:500]}"
-            )
-
-        if response is None:
-            raise JupiterError(
-                "Jupiter quote returned no response"
-            )
-
-        if response.status_code != 200:
-            raise JupiterError(
-                f"Jupiter quote HTTP "
-                f"{response.status_code}: "
-                f"{response.text[:500]}"
-            )
-
-        try:
-            data = response.json()
-        except ValueError as exc:
-            raise JupiterError(
-                f"Invalid Jupiter JSON response: "
-                f"{response.text[:500]}"
-            ) from exc
-
+        
+        response = self._request_with_retry("GET", url, params=params, is_exit=is_exit)
+        data = response["data"]
+        
         if not data.get("outAmount"):
-            raise JupiterError(
-                f"Jupiter returned no output amount: {data}"
-            )
-
+            raise JupiterError(f"Jupiter returned no output amount: {data}")
+            
+        data["_telemetry"] = response["telemetry"]
         return data
 
-    # =========================================================
-    # QUOTE VALIDATION
-    # =========================================================
-
-    def validate_quote(
-        self,
-        quote,
-        max_price_impact_pct=2.0,
-    ):
+    def validate_quote(self, quote, max_price_impact_pct=2.0):
         if not isinstance(quote, dict):
             return False, "Quote is not a dictionary"
-
         if not quote.get("inputMint"):
             return False, "Missing inputMint"
-
         if not quote.get("outputMint"):
             return False, "Missing outputMint"
-
-        in_amount = int(
-            quote.get("inAmount", 0)
-        )
-
-        out_amount = int(
-            quote.get("outAmount", 0)
-        )
-
-        if in_amount <= 0:
+        if int(quote.get("inAmount", 0)) <= 0:
             return False, "Invalid input amount"
-
-        if out_amount <= 0:
+        if int(quote.get("outAmount", 0)) <= 0:
             return False, "Invalid output amount"
-
-        routes = quote.get("routePlan")
-
-        if not routes:
+        if not quote.get("routePlan"):
             return False, "No route returned"
-
         try:
-            price_impact = float(
-                quote.get("priceImpactPct", 0.0)
-            )
+            price_impact = float(quote.get("priceImpactPct", 0.0))
         except (TypeError, ValueError):
             return False, "Invalid price impact"
-
         if price_impact > float(max_price_impact_pct):
-            return (
-                False,
-                (
-                    f"Price impact {price_impact:.4f}% "
-                    f"exceeds maximum "
-                    f"{float(max_price_impact_pct):.4f}%"
-                ),
-            )
-
+            return False, f"Price impact {price_impact:.4f}% exceeds maximum {float(max_price_impact_pct):.4f}%"
         return True, "Quote accepted"
 
-    # =========================================================
-    # SWAP TRANSACTION
-    #
-    # IMPORTANT:
-    # This requests a transaction from Jupiter.
-    # It DOES NOT sign or submit it.
-    # =========================================================
-
-    def build_swap_transaction(
-        self,
-        quote,
-        user_public_key,
-        wrap_and_unwrap_sol=True,
-    ):
+    def build_swap_transaction(self, quote, user_public_key, wrap_and_unwrap_sol=True, is_exit=False):
         if not quote:
             raise JupiterError("Quote is empty")
-
         if not user_public_key:
-            raise JupiterError(
-                "user_public_key is required"
-            )
+            raise JupiterError("user_public_key is required")
+
+        clean_quote = {k: v for k, v in quote.items() if k != "_telemetry"}
 
         payload = {
-            "quoteResponse": quote,
+            "quoteResponse": clean_quote,
             "userPublicKey": str(user_public_key),
             "wrapAndUnwrapSol": bool(wrap_and_unwrap_sol),
             "dynamicComputeUnitLimit": True,
             "prioritizationFeeLamports": "auto",
         }
-
         url = f"{JUPITER_BASE_URL}/swap"
-
-        try:
-            response = requests.post(
-                url,
-                json=payload,
-                timeout=self.timeout,
-            )
-        except requests.RequestException as exc:
-            raise JupiterError(
-                f"Jupiter swap request failed: {exc}"
-            ) from exc
-
-        if response.status_code != 200:
-            raise JupiterError(
-                f"Jupiter swap HTTP "
-                f"{response.status_code}: "
-                f"{response.text[:1000]}"
-            )
-
-        try:
-            data = response.json()
-        except ValueError as exc:
-            raise JupiterError(
-                f"Invalid Jupiter swap JSON: "
-                f"{response.text[:1000]}"
-            ) from exc
-
+        
+        response = self._request_with_retry("POST", url, json_data=payload, is_exit=is_exit)
+        data = response["data"]
+        
         if not data.get("swapTransaction"):
-            raise JupiterError(
-                "Jupiter returned no swapTransaction"
-            )
-
+            raise JupiterError("Jupiter returned no swapTransaction")
+            
         return data
-
-
-# =============================================================
-# SIMPLE COMMAND-LINE TEST
-# =============================================================
-
-if __name__ == "__main__":
-
-    import sys
-
-    client = JupiterClient(
-        slippage_bps=100
-    )
-
-    token = (
-        sys.argv[1]
-        if len(sys.argv) > 1
-        else SOL_MINT
-    )
-
-    print("=" * 70)
-    print("JUPITER CLIENT TEST")
-    print("=" * 70)
-
-    print("Input mint :", SOL_MINT)
-    print("Output mint:", token)
-    print("Amount     : 10,000,000 lamports")
-    print("Slippage   : 100 bps")
-    print()
-
-    try:
-
-        quote = client.get_quote(
-            input_mint=SOL_MINT,
-            output_mint=token,
-            amount=10_000_000,
-        )
-
-        print("QUOTE OK")
-        print("-" * 70)
-        print("Input amount :", quote["inAmount"])
-        print("Output amount:", quote["outAmount"])
-        print(
-            "Price impact:",
-            quote.get("priceImpactPct"),
-            "%"
-        )
-
-        valid, reason = client.validate_quote(
-            quote,
-            max_price_impact_pct=2.0,
-        )
-
-        print()
-        print("VALIDATION:", valid)
-        print("REASON:", reason)
-
-    except JupiterError as exc:
-
-        print()
-        print("JUPITER ERROR:", exc)
-
-        sys.exit(1)

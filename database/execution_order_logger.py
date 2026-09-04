@@ -248,7 +248,13 @@ class ExecutionOrderLogger:
             "quoted_price", "executable_price", "price_impact_pct", "slippage_usd",
             "network_fee_sol", "priority_fee_sol", "cu_limit", "cu_price",
             "route_plan", "confirmation_latency_ms", "retry_count", "realized_pnl_usd",
-            "decision", "abort_reason", "fee_estimation_status", "live_expected_net_edge"
+            "decision", "abort_reason", "fee_estimation_status", "live_expected_net_edge",
+            "base_fee_lamports", "priority_fee_lamports", "total_network_fee_lamports",
+            "compute_unit_limit", "compute_unit_price_micro_lamports", "fee_source",
+            "fee_cap_lamports", "fee_estimation_timestamp",
+            "jupiter_http_status", "jupiter_retry_count", "jupiter_retry_after_ms",
+            "jupiter_rate_limit_wait_ms", "quote_attempt", "quote_timestamp",
+            "quote_age_ms", "jupiter_failure_reason"
         }
 
         updates = []
