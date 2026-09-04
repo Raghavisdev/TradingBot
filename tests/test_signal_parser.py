@@ -15,6 +15,41 @@ class TestSignalParser(unittest.TestCase):
         self.assertIsNotNone(coin)
         self.assertEqual(coin.symbol, "LARP")
         self.assertEqual(coin.contract, "DEWF4aou8aTXeTzr78WGESXw9ee5C62tHWQU3JcUpump")
+
+    def test_live_dtm_format(self):
+        text = """🚀 $DTM (Duct-Taped Man)
+3Ga3SdQUouCuuzFULcVnCYweVNY7RETq9cXf8tmZpump
+GTscore: ⭐☆☆☆☆
+Delayed 25s · VIP gets it instantly ...
+MC now: $52.5K (+9% since alert)
+MC: $48.2K · Age: 1m · Holders: 416
+Top10: 20% · Bundled: 17% · First50: 31%
+Jeeters: 12% · Fresh: — · Snipers: 0.0%
+Insiders: 0.0% · Dev: 0.0%
+Safe: 46% · Poor: 2.0%
+11C · 33W · 36.1%"""
+        coin = parse_signal(text)
+        self.assertIsNotNone(coin)
+        self.assertEqual(coin.symbol, "DTM")
+        self.assertEqual(coin.name, "Duct-Taped Man")
+        self.assertEqual(coin.contract, "3Ga3SdQUouCuuzFULcVnCYweVNY7RETq9cXf8tmZpump")
+        self.assertEqual(coin.gt_score, 1)
+        self.assertEqual(coin.market_cap, 48200.0)
+        self.assertEqual(coin.age, "1m")
+        self.assertEqual(coin.holders, 416)
+        self.assertEqual(coin.top10, 20.0)
+        self.assertEqual(coin.bundled, 17.0)
+        self.assertEqual(coin.first50, 31.0)
+        self.assertEqual(coin.jeeters, 12.0)
+        self.assertEqual(coin.fresh, 0.0)
+        self.assertEqual(coin.snipers, 0.0)
+        self.assertEqual(coin.insiders, 0.0)
+        self.assertEqual(coin.dev, 0.0)
+        self.assertEqual(coin.safe, 46.0)
+        self.assertEqual(coin.poor, 2.0)
+        self.assertEqual(coin.community, 11)
+        self.assertEqual(coin.whales, 33)
+        self.assertEqual(coin.win_rate, 36.1)
         
     def test_new_gemtools_format_no_space(self):
         text = "🟢$DEBTCOIN\nDEWF4aou8aTXeTzr78WGESXw9ee5C62tHWQU3JcUpump\nMC: $50M"

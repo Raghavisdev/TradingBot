@@ -187,124 +187,75 @@ def parse_signal(text):
     # ==========================================
 
     for line in lines:
-
         if "GTscore:" in line:
-
             coin.gt_score = gt_score_count(line)
-
             coin.gt_stars = line.replace("GTscore:", "").strip()
 
-        elif "MC:" in line:
+        # Some formats have "MC now:" which we should ignore in favor of the original alert MC
+        if line.startswith("MC now:"):
+            continue
 
+        if "MC:" in line:
             mc = re.search(r"MC:\s*\$([0-9.,]+[KMBkmb]?)", line)
-
-            age = re.search(r"Age:\s*(.*?)\s*·", line)
-
+            age = re.search(r"Age:\s*(.*?)\s*(?:·|$)", line)
             holders = re.search(r"Holders:\s*([0-9,]+)", line)
-
             if mc:
-
                 coin.signal_market_cap = extract_number(mc.group(1))
-
                 coin.market_cap = coin.signal_market_cap
-
             if age:
-
                 coin.age = age.group(1).strip()
-
             if holders:
-
                 coin.holders = int(extract_number(holders.group(1)))
 
-        elif "Top10:" in line:
-
+        if "Top10:" in line:
             top10 = re.search(r"Top10:\s*([^·]+)", line)
-
             bundled = re.search(r"Bundled:\s*([^·]+)", line)
-
             first50 = re.search(r"First50:\s*(.*)", line)
-
             if top10:
-
                 coin.top10 = extract_number(top10.group(1))
-
             if bundled:
-
                 coin.bundled = extract_number(bundled.group(1))
-
             if first50:
-
                 coin.first50 = extract_number(first50.group(1))
 
-        elif "Jeeters:" in line:
-
+        if "Jeeters:" in line:
             jeeters = re.search(r"Jeeters:\s*([^·]+)", line)
-
             fresh = re.search(r"Fresh:\s*([^·]+)", line)
-
             snipers = re.search(r"Snipers:\s*(.*)", line)
-
             if jeeters:
-
                 coin.jeeters = extract_number(jeeters.group(1))
-
             if fresh:
-
                 coin.fresh = extract_number(fresh.group(1))
-
             if snipers:
-
                 coin.snipers = extract_number(snipers.group(1))
 
-        elif "Insiders:" in line:
-
+        if "Insiders:" in line:
             insiders = re.search(r"Insiders:\s*([^·]+)", line)
-
             dev = re.search(r"Dev:\s*(.*)", line)
-
             if insiders:
-
                 coin.insiders = extract_number(insiders.group(1))
-
             if dev:
-
                 coin.dev = extract_number(dev.group(1))
 
-        elif "Safe:" in line:
-
+        if "Safe:" in line:
             safe = re.search(r"Safe:\s*([^·]+)", line)
-
             poor = re.search(r"Poor:\s*(.*)", line)
-
             if safe:
-
                 coin.safe = extract_number(safe.group(1))
-
             if poor:
-
                 coin.poor = extract_number(poor.group(1))
 
-        elif "🕸" in line:
-
+        if "🕸" in line or re.search(r"\b\d+C\s*·\s*\d+W\b", line):
             community = re.search(r"(\d+)C", line)
-
             whales = re.search(r"(\d+)W", line)
-
             win_rate = re.search(r"([0-9.]+)\s*%", line)
-
             if community:
-
                 coin.community = int(extract_number(community.group(1)))
-
             if whales:
-
                 coin.whales = int(extract_number(whales.group(1)))
-
             if win_rate:
-
                 coin.win_rate = extract_number(win_rate.group(1))
 
     safe_print("✅ Signal Parsed Successfully")
-
     return coin
 
