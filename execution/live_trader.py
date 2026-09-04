@@ -157,94 +157,62 @@ class LiveTrader:
         amount,
     ):
 
-        symbol = getattr(
-            coin,
-            "symbol",
-            "UNKNOWN",
-        )
-
-        contract = getattr(
-            coin,
-            "contract",
-            None,
-        )
-
-        signal_id = getattr(
-            coin,
-            "signal_id",
-            None,
-        )
+        import config
+        
+        symbol = getattr(coin, "symbol", "UNKNOWN")
+        contract = getattr(coin, "contract", None)
+        signal_id = getattr(coin, "signal_id", "UNKNOWN_SIGNAL")
+        strategy_id = getattr(coin, "strategy_id", "S6_Moonshot_Ladder")
 
         try:
-
             amount = float(amount)
-
-        except (
-            TypeError,
-            ValueError,
-        ):
-
+        except (TypeError, ValueError):
             return None
 
         if amount <= 0:
-
             return None
+            
+        # -----------------------------------------------------
+        # CALIBRATION CAP
+        # -----------------------------------------------------
+        cap = getattr(config, "LIVE_CALIBRATION_CAP_USD", 1.0)
+        original_amount = amount
+        amount = min(amount, cap)
+        
+        if original_amount != amount:
+            logger.info(f"[LIVE BUY] S6 allocation ${original_amount:.2f} capped to ${amount:.2f} for calibration")
 
         try:
-
-            if getattr(
-                self.portfolio,
-                "refresh_before_trade",
-                True,
-            ):
-
+            if getattr(self.portfolio, "refresh_before_trade", True):
                 self.portfolio.refresh()
-
         except Exception as exc:
-
-            logger.error(
-                "[LIVE BUY] Refresh failed: %s",
-                exc,
-            )
-
+            logger.error("[LIVE BUY] Refresh failed: %s", exc)
             return None
 
-        available = float(
-            self.portfolio.cash
-        )
-
+        available = float(self.portfolio.cash)
         if amount > available:
-
-            logger.warning(
-                "[LIVE BUY] Insufficient capital"
-            )
-
+            logger.warning("[LIVE BUY] Insufficient capital")
             return None
 
-        if not self.portfolio.can_open_trade(
-            amount
-        ):
-
-            logger.warning(
-                "[LIVE BUY] Portfolio risk blocked"
-            )
-
+        if not self.portfolio.can_open_trade(amount):
+            logger.warning("[LIVE BUY] Portfolio risk blocked")
             return None
 
-        order_id = (
-            self.order_logger.create_order(
-                signal_id=signal_id,
-                symbol=symbol,
-                side="BUY",
-                requested_amount=amount,
-                idempotency_key=str(
-                    uuid.uuid4()
-                ),
-            )
+        # -----------------------------------------------------
+        # IDEMPOTENCY
+        # -----------------------------------------------------
+        idempotency_key = f"{signal_id}_{strategy_id}_ENTRY"
+
+        order_id = self.order_logger.create_order(
+            signal_id=signal_id,
+            symbol=symbol,
+            side="BUY",
+            requested_amount=amount,
+            idempotency_key=idempotency_key,
         )
 
         if not order_id:
-
+            logger.error(f"[LIVE BUY] Idempotency rejection for key {idempotency_key}")
             return None
 
         self.order_logger.update_order(
@@ -261,6 +229,7 @@ class LiveTrader:
         print("Amount   :", f"${amount:.2f}")
 
         result = self.executor.prepare_buy(
+            coin=coin,
             token_mint=contract,
             amount_usd=amount,
             liquidity_usd=float(
@@ -279,16 +248,19 @@ class LiveTrader:
             ),
         )
 
-        if not result.success:
+        # -----------------------------------------------------
+        # RECORD TELEMETRY
+        # -----------------------------------------------------
+        if hasattr(result, 'telemetry') and result.telemetry:
+            self.order_logger.update_telemetry(order_id, **result.telemetry)
 
+        if not result.success:
             self.order_logger.update_order(
                 order_id,
                 status="FAILED",
                 error=result.error,
             )
-
             print("BUY BLOCKED:", result.error)
-
             return None
 
         self.order_logger.update_order(
@@ -296,13 +268,27 @@ class LiveTrader:
             status="TRANSACTION_BUILT",
         )
 
-        return self._sign_send_confirm(
-            order_id=order_id,
-            transaction=result.transaction,
-            requested_amount=amount,
-            symbol=symbol,
-            side="BUY",
-        )
+        # -----------------------------------------------------
+        # SHADOW MODE - STRUCTURALLY BLOCK SIGNING
+        # -----------------------------------------------------
+        logger.info("[LIVE SHADOW] Transaction successfully built and gated. Signing is structurally disabled in Phase 1.")
+        print("[LIVE SHADOW] SUCCESS: Transaction would be signed here.")
+        
+        # Simulate position creation for the shadow pipeline
+        import time
+        from trading.position import Position
+        pos = Position()
+        pos.symbol = symbol
+        pos.trade_id = order_id
+        pos.strategy_id = strategy_id
+        pos.status = "OPEN"
+        pos.entry_price = getattr(result, "executable_price", 0.0) # Or quoted_price
+        pos.current_price = pos.entry_price
+        pos.highest_price = pos.entry_price
+        pos.invested_amount = amount
+        pos.timestamp = time.time()
+        
+        return pos
 
     # =========================================================
     # SELL ALL

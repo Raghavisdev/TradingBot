@@ -664,6 +664,36 @@ def create_tables():
         except Exception:
             pass
 
+        # Comprehensive telemetry for Phase 1 live execution
+        for col, col_type in [
+            ("snapshot_ts", "REAL"),
+            ("quote_ts", "REAL"),
+            ("build_ts", "REAL"),
+            ("sign_ts", "REAL"),
+            ("submit_ts", "REAL"),
+            ("confirm_ts", "REAL"),
+            ("quoted_price", "REAL"),
+            ("executable_price", "REAL"),
+            ("price_impact_pct", "REAL"),
+            ("slippage_usd", "REAL"),
+            ("network_fee_sol", "REAL"),
+            ("priority_fee_sol", "REAL"),
+            ("cu_limit", "INTEGER"),
+            ("cu_price", "REAL"),
+            ("route_plan", "TEXT"),
+            ("confirmation_latency_ms", "REAL"),
+            ("retry_count", "INTEGER"),
+            ("realized_pnl_usd", "REAL"),
+            ("decision", "TEXT"),
+            ("abort_reason", "TEXT"),
+            ("fee_estimation_status", "TEXT"),
+            ("live_expected_net_edge", "REAL"),
+        ]:
+            try:
+                cursor.execute(f"ALTER TABLE execution_orders ADD COLUMN {col} {col_type}")
+            except Exception:
+                pass
+
         connection.commit()
         print("[OK] Database Tables Ready")
 

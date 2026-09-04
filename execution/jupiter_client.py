@@ -318,9 +318,9 @@ class JupiterClient:
         payload = {
             "quoteResponse": quote,
             "userPublicKey": str(user_public_key),
-            "wrapAndUnwrapSol": bool(
-                wrap_and_unwrap_sol
-            ),
+            "wrapAndUnwrapSol": bool(wrap_and_unwrap_sol),
+            "dynamicComputeUnitLimit": True,
+            "prioritizationFeeLamports": "auto",
         }
 
         url = f"{JUPITER_BASE_URL}/swap"

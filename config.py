@@ -53,6 +53,15 @@ S6_CANDIDATE_MODE = os.getenv("S6_CANDIDATE_MODE", "False").lower() in ("true", 
 PORTFOLIO_DRAWDOWN_LIMIT = float(os.getenv("PORTFOLIO_DRAWDOWN_LIMIT", 0.15))
 
 # ----------------------------------------------------
+# LIVE EXECUTION SAFETY LIMITS
+# ----------------------------------------------------
+LIVE_PRIORITY_FEE_MAX_SOL = float(os.getenv("LIVE_PRIORITY_FEE_MAX_SOL", 0.005))
+LIVE_CALIBRATION_CAP_USD = float(os.getenv("LIVE_CALIBRATION_CAP_USD", 1.00))
+LIVE_MIN_SOL_RESERVE = float(os.getenv("LIVE_MIN_SOL_RESERVE", 0.05))
+LIVE_MAX_EXECUTION_RETRIES = int(os.getenv("LIVE_MAX_EXECUTION_RETRIES", 2))
+LIVE_SLIPPAGE_BPS = int(os.getenv("LIVE_SLIPPAGE_BPS", 100))
+
+# ----------------------------------------------------
 # LOGGING & HEALTH MONITORING
 # ----------------------------------------------------
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()

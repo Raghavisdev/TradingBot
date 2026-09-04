@@ -234,7 +234,49 @@ class ExecutionOrderLogger:
             return False
 
         finally:
+            cursor.close()
 
+    # =========================================================
+    # UPDATE TELEMETRY (PHASE 1)
+    # =========================================================
+    def update_telemetry(self, order_id, **kwargs):
+        if not kwargs:
+            return False
+
+        allowed_fields = {
+            "snapshot_ts", "quote_ts", "build_ts", "sign_ts", "submit_ts", "confirm_ts",
+            "quoted_price", "executable_price", "price_impact_pct", "slippage_usd",
+            "network_fee_sol", "priority_fee_sol", "cu_limit", "cu_price",
+            "route_plan", "confirmation_latency_ms", "retry_count", "realized_pnl_usd",
+            "decision", "abort_reason", "fee_estimation_status", "live_expected_net_edge"
+        }
+
+        updates = []
+        values = []
+        for k, v in kwargs.items():
+            if k in allowed_fields:
+                updates.append(f"{k} = ?")
+                values.append(v)
+                
+        if not updates:
+            return False
+
+        updates.append("updated_at = ?")
+        values.append(time.time())
+        values.append(order_id)
+
+        query = f"UPDATE execution_orders SET {', '.join(updates)} WHERE order_id = ?"
+        
+        cursor = self.connection.cursor()
+        try:
+            cursor.execute(query, tuple(values))
+            self.connection.commit()
+            return cursor.rowcount > 0
+        except Exception as exc:
+            self.connection.rollback()
+            logger.error("[EXECUTION ORDER] update_telemetry failed: %s", exc)
+            return False
+        finally:
             cursor.close()
 
     # =========================================================
