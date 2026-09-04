@@ -117,6 +117,71 @@ class TestS6StrictExits(unittest.TestCase):
 
     @patch('trading.trade_manager.get_exit_decision')
     @patch('trading.trade_manager.update_market')
+    def test_legacy_fallback_remains_active(self, mock_update, mock_legacy_exit):
+        mock_update.return_value = MagicMock(price=10.5, live_market_cap=100000)
+        self.legacy_pos.current_price = 10.5
+        self.legacy_pos.highest_price = 10.5
+        
+        mock_legacy_exit.return_value = ("SELL_40", 80.0, "Legacy trigger")
+        
+        self.mock_portfolio.get_open_positions.return_value = [self.legacy_pos]
+        self.tm.update()
+        
+        self.assertEqual(self.legacy_pos.exit_action, "SELL_40")
+        mock_legacy_exit.assert_called_once()
+
+    @patch('trading.trade_manager.get_exit_decision')
+    @patch('trading.trade_manager.update_market')
+    def test_s6_trail_break_deterministic_path(self, mock_update, mock_legacy_exit):
+        # Path: entry(10) -> HWM(20) -> drop to (15) [stop is 20*0.8=16] -> TRAIL BREAK
+        # Price path sequence
+        
+        # 1. Start at entry 10.0
+        self.s6_pos.entry_price = 10.0
+        self.s6_pos.current_price = 10.0
+        self.s6_pos.highest_price = 10.0
+        self.mock_portfolio.get_open_positions.return_value = [self.s6_pos]
+        
+        # 2. HWM increases to 15.0
+        mock_update.return_value = MagicMock(price=15.0, live_market_cap=150000)
+        self.s6_pos.current_price = 15.0
+        self.s6_pos.highest_price = 15.0
+        self.tm.update()
+        self.assertEqual(self.s6_pos.exit_action, "HOLD")
+        self.assertEqual(self.s6_pos.s6_stop_price, 15.0 * 0.80) # 12.0
+        
+        # 3. HWM increases to 18.0
+        mock_update.return_value = MagicMock(price=18.0, live_market_cap=180000)
+        self.s6_pos.current_price = 18.0
+        self.s6_pos.highest_price = 18.0
+        self.tm.update()
+        self.assertEqual(self.s6_pos.exit_action, "HOLD")
+        self.assertEqual(self.s6_pos.s6_stop_price, 18.0 * 0.80) # 14.4
+        
+        # 4. Price drops to 16.0 (above stop 14.4)
+        mock_update.return_value = MagicMock(price=16.0, live_market_cap=160000)
+        self.s6_pos.current_price = 16.0
+        self.s6_pos.highest_price = 18.0 # HWM unchanged
+        self.tm.update()
+        self.assertEqual(self.s6_pos.exit_action, "HOLD")
+        self.assertEqual(self.s6_pos.s6_stop_price, 14.4) # Stop ratcheted and held
+        
+        # 5. Price drops to 14.0 (<= stop 14.4) -> TRAIL BREAK
+        mock_update.return_value = MagicMock(price=14.0, live_market_cap=140000)
+        self.s6_pos.current_price = 14.0
+        self.s6_pos.highest_price = 18.0 # HWM unchanged
+        self.tm.update()
+        
+        self.assertEqual(self.s6_pos.exit_action, "SELL_ALL")
+        self.assertEqual(self.s6_pos.exit_confidence, 100.0)
+        self.assertIn("S6 NORMAL TRAIL BREAK", self.s6_pos.exit_reason)
+        self.assertIn("14.0", self.s6_pos.exit_reason)
+        
+        # S6 exit router was bypassed, legacy exit was not called
+        mock_legacy_exit.assert_not_called()
+
+    @patch('trading.trade_manager.get_exit_decision')
+    @patch('trading.trade_manager.update_market')
     def test_non_s6_retains_legacy_behavior(self, mock_update, mock_legacy_exit):
         mock_update.return_value = MagicMock(price=15.0, live_market_cap=100000)
         self.legacy_pos.current_price = 15.0

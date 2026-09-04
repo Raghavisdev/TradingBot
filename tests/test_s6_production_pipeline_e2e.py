@@ -2,10 +2,7 @@ import unittest
 import os
 import sys
 from unittest.mock import patch, MagicMock
-import sys
-sys.modules['solders'] = MagicMock()
-sys.modules['solders.transaction'] = MagicMock()
-sys.modules['solders.keypair'] = MagicMock()
+
 
 from engine.pipeline import process_message
 from trading.portfolio import Portfolio
@@ -167,10 +164,9 @@ class TestPipelineS6E2E(unittest.TestCase):
         # buy(coin, amount)
         self.assertAlmostEqual(kwargs.get('amount') or args[1], 3.508, places=2)
 
-    @patch('engine.pipeline.PaperTrader')
-    def test_pipeline_e2e_score_below_55_rejected(self, mock_paper_trader_class):
+    def test_pipeline_e2e_score_below_55_rejected(self):
         message = {"token": "E2ETEST_SCORE", "contract": "SCORE_CONTRACT", "market_cap": 50000.0}
-        class DummyCoin: 
+        class DummyCoin:
             contract = 'DUMMY'
             decision = 'BUY'
             buy_blocked_by = None
@@ -182,27 +178,27 @@ class TestPipelineS6E2E(unittest.TestCase):
             coin.decision = "BUY"
             coin.valid = True
             return coin
-            
+        
         self.mock_collect.side_effect = lambda c: c
         self.mock_gemtools.side_effect = lambda c: c
         self.mock_fundamentals.side_effect = lambda c: c
         self.mock_decision.side_effect = mock_decision_effect
-
+        
         self.mock_recheck.return_value = ExecutionState(
-            checked_at=1000.0, market_cap=50000.0, price=1.0, liquidity=20000.0,
-            volume_5m=5000.0, buys_5m=50, sells_5m=50, signal_market_cap=50000.0,
-            signal_price=1.0, mc_multiple_from_signal=1.0, price_multiple_from_signal=1.0,
+            checked_at=1000.0, market_cap=50000.0, price=1.0, liquidity=20000.0, 
+            volume_5m=5000.0, buys_5m=50, sells_5m=50, signal_market_cap=50000.0, 
+            signal_price=1.0, mc_multiple_from_signal=1.0, price_multiple_from_signal=1.0, 
             signal_age_seconds=10.0
         )
         
         mock_paper = MagicMock()
-        mock_paper_trader_class.return_value = mock_paper
-
+        
         with patch.dict(os.environ, {"S6_Moonshot_VNext_MODE": "SHADOW", "LIVE_TRADING": "False"}):
-            coin = process_message(message)
+            with patch('engine.pipeline.trader', mock_paper):
+                coin = process_message(message)
             
-        # Verify blocked by AI Decision directly
-        self.assertIn("AI Decision", getattr(coin, 'buy_blocked_by', ''))
+        # Verify blocked by S6 Execution Evaluator directly
+        self.assertIn("S6 Execution Evaluator", getattr(coin, 'buy_blocked_by', ''))
         
         mock_paper.buy.assert_not_called()
 

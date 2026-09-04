@@ -143,8 +143,12 @@ def process_message(message):
     # FINAL S6 ARCHITECTURE overrides legacy decision
     if production_entry.eligible:
         coin.decision = "BUY"
+        coin.decision_reason = f"S6 V2 APPROVED: {production_entry.reason}"
+        coin.buy_blocked_by = ""
     else:
         coin.decision = "SKIP"
+        coin.decision_reason = f"S6 V2 REJECTED: {production_entry.reason}"
+        coin.buy_blocked_by = "S6 Execution Evaluator"
 
     # ======================================================
     # UPDATE SIGNAL WITH AI RESULT
@@ -191,7 +195,8 @@ def process_message(message):
 
     if coin.decision not in ["BUY", "STRONG BUY"]:
 
-        coin.buy_blocked_by = "AI Decision"
+        if not getattr(coin, "buy_blocked_by", None):
+            coin.buy_blocked_by = "AI Decision"
         database.update_signal(coin)
 
         print("\n[SKIP] AI Rejected Trade")

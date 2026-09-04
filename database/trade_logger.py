@@ -81,6 +81,7 @@ class TradeLogger:
                 """
                 INSERT OR IGNORE INTO paper_trades(
                     trade_id,
+                    session_id,
                     strategy_id,
                     strategy_version,
                     signal_id,
@@ -112,7 +113,7 @@ class TradeLogger:
                     scale_in_completed,
                     post_probe_snapshot_count
                 )
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (
                     getattr(
@@ -120,6 +121,8 @@ class TradeLogger:
                         "trade_id",
                         None,
                     ),
+
+                    __import__('os').getenv("PAPER_SESSION_ID", "S6_RUNTIME_PAPER"),
 
                     getattr(
                         position,

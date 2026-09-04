@@ -69,7 +69,9 @@ def test_retry_after_seconds():
     ]
     
     def mock_get(*args, **kwargs):
-        return responses.pop(0)
+        if responses:
+            return responses.pop(0)
+        return MockResponse(200, {"outAmount": "1000"})
 
     start_time = time.time()
     with patch("execution.jupiter_client.requests.get", side_effect=mock_get):
