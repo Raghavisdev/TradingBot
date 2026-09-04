@@ -105,7 +105,7 @@ def parse_signal(text):
     # Must start with signal
     # ==========================================
 
-    if not text.startswith("🚀 $"):
+    if "$" not in text:
 
         safe_print("Rejected : Not a new signal")
 
